@@ -20,6 +20,7 @@ from starlette.requests import Request
 from sqlalchemy.exc import OperationalError
 
 import resilience
+from routers import chat as chat_router
 
 
 # ---------------------------------------------------------------------------
@@ -139,8 +140,8 @@ def client_with_fake_auth(monkeypatch):
 @pytest.mark.asyncio
 async def test_chat_falls_back_from_gemini_to_groq_on_network_failure(client_with_fake_auth, monkeypatch):
     client, main = client_with_fake_auth
-    monkeypatch.setattr(main, "GEMINI_KEY", "fake-gemini-key")
-    monkeypatch.setattr(main, "GROQ_KEY", "fake-groq-key")
+    monkeypatch.setattr(chat_router, "GEMINI_KEY", "fake-gemini-key")
+    monkeypatch.setattr(chat_router, "GROQ_KEY", "fake-groq-key")
 
     async def fake_post(self, url, *args, **kwargs):
         if "generativelanguage" in url:
@@ -164,8 +165,8 @@ async def test_chat_falls_back_from_gemini_to_groq_on_network_failure(client_wit
 @pytest.mark.asyncio
 async def test_chat_returns_clean_503_when_all_providers_down(client_with_fake_auth, monkeypatch):
     client, main = client_with_fake_auth
-    monkeypatch.setattr(main, "GEMINI_KEY", "fake-gemini-key")
-    monkeypatch.setattr(main, "GROQ_KEY", "fake-groq-key")
+    monkeypatch.setattr(chat_router, "GEMINI_KEY", "fake-gemini-key")
+    monkeypatch.setattr(chat_router, "GROQ_KEY", "fake-groq-key")
 
     async def always_down(self, url, *args, **kwargs):
         raise httpx.ConnectError("panne réseau totale (simulée)")
@@ -187,8 +188,8 @@ async def test_chat_breaker_opens_and_subsequent_calls_fail_fast(client_with_fak
     (ils basculent directement sur Groq), donc doivent être nettement plus
     rapides que le premier — c'est tout l'intérêt du disjoncteur."""
     client, main = client_with_fake_auth
-    monkeypatch.setattr(main, "GEMINI_KEY", "fake-gemini-key")
-    monkeypatch.setattr(main, "GROQ_KEY", "fake-groq-key")
+    monkeypatch.setattr(chat_router, "GEMINI_KEY", "fake-gemini-key")
+    monkeypatch.setattr(chat_router, "GROQ_KEY", "fake-groq-key")
     gemini_calls = {"n": 0}
 
     async def flaky_post(self, url, *args, **kwargs):

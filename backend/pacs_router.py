@@ -25,15 +25,12 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import PlainTextResponse
-from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError
 from sqlalchemy.orm import Session
 
 import models
-import security as sec
 import interop
 import pacs_client
 import resilience
@@ -41,53 +38,21 @@ import pacs_dimse
 import mllp_client
 import pydicom
 from db import get_db
+from deps import get_current_user, write_audit as _audit
 
 router = APIRouter(tags=["pacs-fhir-hl7"])
 
-_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token", auto_error=False)
-
-# Même dossier et même variable d'environnement que main.py (DICOM_STORAGE_DIR)
-# — sauvegarde réelle des pixels rapatriés depuis un PACS, pour qu'une série
-# importée puisse ensuite être envoyée en segmentation sans re-upload manuel.
+# Même dossier et même variable d'environnement que routers/dicom.py
+# (DICOM_STORAGE_DIR) — sauvegarde réelle des pixels rapatriés depuis un PACS,
+# pour qu'une série importée puisse ensuite être envoyée en segmentation sans
+# re-upload manuel.
 DICOM_STORAGE_DIR = Path(os.getenv("DICOM_STORAGE_DIR", "./storage/dicom_series")).resolve()
 DICOM_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
-
-# ---------------------------------------------------------------------------
-# Auth + audit — dupliqués volontairement depuis main.py pour éviter tout
-# import circulaire (main.py inclut ce router ; ce router ne doit pas
-# importer main.py). Même logique, même table audit_log.
-# ---------------------------------------------------------------------------
-async def get_current_user(token: Optional[str] = Depends(_oauth2_scheme),
-                            db: Session = Depends(get_db)) -> models.User:
-    cred_exc = HTTPException(status.HTTP_401_UNAUTHORIZED, "Token invalide ou expiré.",
-                              headers={"WWW-Authenticate": "Bearer"})
-    if not token:
-        raise cred_exc
-    try:
-        payload = sec.decode_token(token)
-        if payload.get("scope") != "full":
-            raise cred_exc
-        username = payload.get("sub")
-        if not username:
-            raise cred_exc
-    except JWTError:
-        raise cred_exc
-    user = db.query(models.User).filter(models.User.username == username).first()
-    if user is None or not user.is_active:
-        raise cred_exc
-    return user
-
-
-def _audit(db: Session, request: Request, action: str, resource: str, user: models.User,
-           patient_id: Optional[str] = None, niveau: str = "info", metadata: Optional[dict] = None):
-    db.add(models.AuditLog(
-        user_id=user.id, username=user.username, patient_id=patient_id, action=action,
-        resource=resource, method=request.method, path=str(request.url.path),
-        status_code=200, ip_address=request.client.host if request.client else None,
-        niveau=niveau, metadata_json=metadata or {},
-    ))
-    db.commit()
+# get_current_user et l'audit trail (_audit = deps.write_audit) viennent
+# désormais de deps.py, module neutre qui n'importe jamais main.py — avant,
+# ce router en gardait sa propre copie ("dupliquée volontairement... pour
+# éviter tout import circulaire"), désormais inutile.
 
 
 def _get_patient_or_404(db: Session, patient_id: str) -> models.Patient:
