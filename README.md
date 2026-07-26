@@ -7,7 +7,7 @@ connectée, analyse prédictive calculée, backend FastAPI générique.
 
 ## Contenu
 
-- `generalsurg_plan_mimo.html` — page d'entrée du front (HTML + CSS/JS externes dans `assets/`, aucun build requis)
+- `index.html` — page d'entrée du front (HTML + CSS/JS externes dans `assets/`, aucun build requis)
 - `assets/` — CSS (`styles.css`) et JS (`app-part1.js`, `app-part2.js`, `app-part3.js`, `app-bootstrap.js`) du front, extraits du HTML monolithique d'origine pour rester lisibles/diffables
 - `backend/` — API FastAPI (auth JWT, patients, DICOM, volumétrie, IA)
 
@@ -68,18 +68,21 @@ Utilisateurs de démonstration : `dr.hadj` / `changeme`, `dr.benali` / `changeme
 ## Utiliser le front
 
 Depuis que le CSS/JS ont été extraits dans `assets/` (voir ci-dessus), un
-double-clic direct sur `generalsurg_plan_mimo.html` ne suffit plus de façon
-fiable : certains navigateurs bloquent le chargement de fichiers `.js` locaux
-via `file://` (restrictions CORS). Servez le dossier avec un petit serveur
-HTTP local, par exemple :
+double-clic direct sur `index.html` ne suffit plus de façon fiable : certains
+navigateurs bloquent le chargement de fichiers `.js` locaux via `file://`
+(restrictions CORS). Servez le dossier avec un petit serveur HTTP local, par
+exemple :
 
 ```bash
 python -m http.server 8080
-# puis ouvrir http://localhost:8080/generalsurg_plan_mimo%20.html
+# puis ouvrir http://localhost:8080/
 ```
 
 (ou `npx serve`, ou tout autre serveur statique — aucun backend n'est requis
-pour ce mode démo hors-ligne, juste un serveur de fichiers). Pour activer
+pour ce mode démo hors-ligne, juste un serveur de fichiers). Le backend
+FastAPI sert aussi directement `index.html` (+ `assets/` en statique) sur
+`GET /` une fois lancé (voir plus haut) — pratique si vous préférez tout
+lancer d'un coup. Pour activer
 l'IA en direct ou la persistance patients, ouvrez **⚙ Paramètres** et
 renseignez :
 - une clé API Gemini (https://aistudio.google.com/apikey), et/ou

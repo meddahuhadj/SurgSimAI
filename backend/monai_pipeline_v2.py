@@ -7,7 +7,7 @@ actif en clinique par défaut. Audité : ce module n'appelle NI torch NI monai. 
 décrit ci-dessous (point 5) est en réalité le SEUL comportement de ce module : il renvoie des volumes
 hépatiques et segments de Couinaud FIXES ET IDENTIQUES pour n'importe quel patient (aucun calcul réel),
 tout en écrivant un enregistrement de statut "READY" scellé par un hash d'audit — sans jamais
-l'indiquer. Non utilisé par le frontend actuel (voir generalsurg_plan_mimo.html, qui appelle
+l'indiquer. Non utilisé par le frontend actuel (voir index.html (assets/app-part*.js), qui appelle
 /segmentation/auto → segmentation_service.py, la vraie intégration TotalSegmentator). Pour une
 segmentation réelle, utiliser exclusivement /segmentation/auto et /segmentation/capabilities.
 

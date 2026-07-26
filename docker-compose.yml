@@ -18,7 +18,7 @@ services:
     container_name: generalsurg_app
     restart: always
     environment:
-      - DATABASE_URL=postgresql://surguser:SuperSecretSurgPwd2026@postgres:5432/generalsurg_db
+      - DATABASE_URL=postgresql://surguser:${POSTGRES_PASSWORD:?Définissez POSTGRES_PASSWORD dans un fichier .env à la racine (voir .env.example) avant de lancer ce stack}@postgres:5432/generalsurg_db
       - ORTHANC_URL=http://orthanc:8042
       - MESH_STORAGE_DIR=/tmp/storage/meshes_v2
       - LOG_LEVEL=INFO
@@ -40,7 +40,7 @@ services:
     restart: always
     environment:
       - POSTGRES_USER=surguser
-      - POSTGRES_PASSWORD=SuperSecretSurgPwd2026
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Définissez POSTGRES_PASSWORD dans un fichier .env à la racine (voir .env.example) avant de lancer ce stack}
       - POSTGRES_DB=generalsurg_db
     ports:
       - "5432:5432"

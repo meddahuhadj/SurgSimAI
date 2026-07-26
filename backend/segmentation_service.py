@@ -183,7 +183,7 @@ def _maybe_build_lowpoly_twin_mesh(job_id: str, target_faces: int = 1500) -> Opt
     """Variante bas-poly de liver_total.glb, dédiée à l'onglet "Jumeau numérique"
     (simulation de déformation PBD en JavaScript pur côté frontend) : plusieurs
     milliers de sommets y feraient chuter le framerate — voir
-    generalsurg_plan_mimo.html:buildTwinGeometryFromRealLiverMesh(). Ne lève
+    index.html (assets/app-part*.js):buildTwinGeometryFromRealLiverMesh(). Ne lève
     jamais d'exception : un échec ne doit pas invalider le job de segmentation,
     le frontend retombe alors sur l'anatomie procédurale pour le Jumeau."""
     try:

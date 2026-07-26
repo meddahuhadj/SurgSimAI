@@ -1,4 +1,4 @@
-// Test du code RÉEL (extrait de generalsurg_plan_mimo.html) pour la découverte la plus grave
+// Test du code RÉEL (extrait des fichiers assets/app-part*.js) pour la découverte la plus grave
 // de l'audit : digitalTwinPipeline, qui tourne AUTOMATIQUEMENT à chaque changement de patient
 // (aucune action chirurgien requise), appelle le backend /api/v2/patient-anatomy/... — un
 // endpoint déplacé derrière RESEARCH_MODE (voir real_patient_dicom_mesh_service.py, fictif par
@@ -14,8 +14,13 @@
 const fs = require('fs');
 const path = require('path');
 
-const htmlPath = path.join(__dirname, '..', 'generalsurg_plan_mimo .html');
-const html = fs.readFileSync(htmlPath, 'utf8');
+// Le JS a été extrait de l'ancien HTML monolithique vers assets/app-part*.js
+// (voir le découpage frontend) : on reconstitue le même contenu combiné en
+// concaténant les 3 fichiers dans leur ordre d'exécution d'origine, pour que
+// les recherches de marqueurs ci-dessous continuent de fonctionner à l'identique.
+const html = ['app-part1.js', 'app-part2.js', 'app-part3.js']
+  .map(f => fs.readFileSync(path.join(__dirname, '..', 'assets', f), 'utf8'))
+  .join('\n');
 
 function assert(cond, msg) {
   if (!cond) { console.error('❌ ÉCHEC:', msg); process.exitCode = 1; }

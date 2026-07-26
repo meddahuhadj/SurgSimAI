@@ -43,9 +43,12 @@ RUN pip install --no-cache-dir --upgrade pip && \
         -r $APP_HOME/backend/requirements.txt \
         -r $APP_HOME/backend/requirements-segmentation.txt
 
-# Copie intégrale du code backend et du frontend HTML5 NextGen
+# Copie intégrale du code backend et du frontend (index.html + assets/ CSS/JS)
+# — backend/main.py sert index.html à la racine de $APP_HOME et monte
+# $APP_HOME/assets en statique sous /assets (voir main.py:serve_frontend).
 COPY backend/ $APP_HOME/backend/
-COPY generalsurg_plan_mimo.html $APP_HOME/static/index.html
+COPY index.html $APP_HOME/index.html
+COPY assets/ $APP_HOME/assets/
 
 # Création de l'utilisateur non-root sécurisé pour isolation au bloc opératoire (MDR/HIPAA)
 RUN groupadd -g 10001 surgadmin && \

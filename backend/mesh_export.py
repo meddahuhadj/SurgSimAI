@@ -229,7 +229,7 @@ def decimate_glb(in_path: Path, out_path: Path, target_faces: int,
     (ex. simulation de déformation PBD côté frontend) où la fidélité complète du
     maillage n'est pas nécessaire et pénaliserait le framerate — voir
     segmentation_service.py (maillage bas-poly du foie pour l'onglet "Jumeau
-    numérique" de generalsurg_plan_mimo.html).
+    numérique" de index.html / assets/app-part*.js).
 
     Lève `FileNotFoundError` si `in_path` est absent.
     """

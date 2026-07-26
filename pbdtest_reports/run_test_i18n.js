@@ -1,4 +1,4 @@
-// Test du code RÉEL (extrait tel quel de generalsurg_plan_mimo.html) du moteur I18N :
+// Test du code RÉEL (extrait tel quel des fichiers assets/app-part*.js) du moteur I18N :
 // interpolation {name}, pluriel ICU-lite {count, plural, one{}other{}}, repli anglais sur clé
 // manquante, changement de langue (dont RTL pour l'arabe), détection navigateur, couche de
 // surcharge (éditeur de traductions) et export/import JSON.
@@ -7,8 +7,13 @@
 const fs = require('fs');
 const path = require('path');
 
-const htmlPath = path.join(__dirname, '..', 'generalsurg_plan_mimo .html');
-const html = fs.readFileSync(htmlPath, 'utf8');
+// Le JS a été extrait de l'ancien HTML monolithique vers assets/app-part*.js
+// (voir le découpage frontend) : on reconstitue le même contenu combiné en
+// concaténant les 3 fichiers dans leur ordre d'exécution d'origine, pour que
+// les recherches de marqueurs ci-dessous continuent de fonctionner à l'identique.
+const html = ['app-part1.js', 'app-part2.js', 'app-part3.js']
+  .map(f => fs.readFileSync(path.join(__dirname, '..', 'assets', f), 'utf8'))
+  .join('\n');
 
 function assert(cond, msg) {
   if (!cond) { console.error('❌ ÉCHEC:', msg); process.exitCode = 1; }

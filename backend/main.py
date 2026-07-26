@@ -38,12 +38,13 @@ from fastapi import (
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from jose import JWTError
 from sqlalchemy.orm import Session
 import httpx
 
-from db import get_db, init_db
+from db import get_db, init_db, DATABASE_URL
 import models
 import security as sec
 import resilience
@@ -92,6 +93,13 @@ if APP_ENV == "production":
             "allow_credentials=True — n'importe quel site web pourrait "
             "envoyer des requêtes authentifiées à cette API. Définissez "
             "la liste explicite des origines autorisées dans .env."
+        )
+    if DATABASE_URL.startswith("sqlite"):
+        _fatal_errors.append(
+            "DATABASE_URL pointe vers SQLite (fichier local, perdu au "
+            "redémarrage, un seul writer à la fois) — inadapté à un usage "
+            "clinique réel. Définissez DATABASE_URL vers un PostgreSQL "
+            "(ex. `docker compose up -d db`, voir migrations/README.md)."
         )
     if _fatal_errors:
         raise RuntimeError(
@@ -237,7 +245,7 @@ for _mod_name, _router_attr in _real_services:
 # segments de Couinaud FIXES et IDENTIQUES pour tout patient (aucun calcul
 # réel), tout en écrivant un enregistrement 'READY' en base avec un hash
 # d'audit — sans jamais l'indiquer. Non utilisé par le frontend actuel
-# (voir generalsurg_plan_mimo.html, qui appelle /segmentation/auto et
+# (voir index.html / assets/app-part2.js, qui appelle /segmentation/auto et
 # segmentation_service.py, la vraie intégration TotalSegmentator).
 #
 # real_patient_dicom_mesh_service a été déplacé ici depuis _real_services :
@@ -901,7 +909,7 @@ async def get_volumetrie(patient_id: str, request: Request, margin_cm: float = 1
 # IA — chat contextualisé
 # ---------------------------------------------------------------------------
 # Instructions de commandes d'action pour l'interface — miroir exact de
-# voiceCommandInstructions() côté frontend (generalsurg_plan_mimo.html).
+# voiceCommandInstructions() côté frontend (assets/app-part*.js).
 # Utilisé uniquement par /chat (REST) : /ws/chat-stream reçoit son propre
 # system prompt du frontend (déjà enrichi côté client), donc pas besoin de
 # dupliquer ici pour ce chemin.
@@ -1098,9 +1106,19 @@ async def query_audit(patient_id: Optional[str] = None, username: Optional[str] 
 # ---------------------------------------------------------------------------
 # Frontend helper
 # ---------------------------------------------------------------------------
+# index.html référence son CSS/JS via des chemins relatifs "assets/..." (voir
+# le découpage du frontend monolithique) : indispensable de servir ce dossier
+# en statique quand le frontend est chargé depuis ce backend (Docker, ou tout
+# déploiement qui sert index.html via FastAPI plutôt qu'un serveur statique
+# séparé) — sans ce mount, le navigateur recevrait des 404 sur assets/*.
+_FRONTEND_ASSETS_DIR = (Path(os.path.dirname(__file__)) / ".." / "assets").resolve()
+if _FRONTEND_ASSETS_DIR.is_dir():
+    app.mount("/assets", StaticFiles(directory=str(_FRONTEND_ASSETS_DIR)), name="frontend-assets")
+
+
 @app.get("/")
 async def serve_frontend():
-    path = os.path.join(os.path.dirname(__file__), "..", "generalsurg_plan_mimo.html")
+    path = os.path.join(os.path.dirname(__file__), "..", "index.html")
     if os.path.exists(path):
         return FileResponse(path)
     return {"msg": "GeneralSurg Plan MIMO API — voir /docs pour la documentation."}

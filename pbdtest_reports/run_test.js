@@ -1,4 +1,4 @@
-// Test du moteur PBD réel (code extrait tel quel de generalsurg_plan_mimo.html)
+// Test du moteur PBD réel (code extrait tel quel des fichiers assets/app-part*.js)
 // avec la vraie librairie three.js r128 (mêmes classes Vector3/BufferGeometry/
 // IcosahedronGeometry que dans le navigateur — seul WebGLRenderer est absent,
 // ce dont on n'a pas besoin pour valider la géométrie et la physique).

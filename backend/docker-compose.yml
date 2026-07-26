@@ -5,7 +5,11 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: generalsurg
-      POSTGRES_PASSWORD: generalsurg
+      # Dev local uniquement (repli "generalsurg" si non défini) — même
+      # philosophie que JWT_SECRET ci-dessous. Définissez POSTGRES_PASSWORD
+      # dans votre environnement pour toute base accessible au-delà de
+      # localhost.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-generalsurg}
       POSTGRES_DB: generalsurg
     ports:
       - "5432:5432"
@@ -25,7 +29,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql+psycopg2://generalsurg:generalsurg@db:5432/generalsurg
+      DATABASE_URL: postgresql+psycopg2://generalsurg:${POSTGRES_PASSWORD:-generalsurg}@db:5432/generalsurg
       JWT_SECRET: ${JWT_SECRET:-changez-moi-en-production}
       GEMINI_KEY: ${GEMINI_KEY:-}
       GROQ_KEY: ${GROQ_KEY:-}

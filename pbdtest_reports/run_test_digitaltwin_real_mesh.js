@@ -1,4 +1,4 @@
-// Test du code RÉEL (extrait de generalsurg_plan_mimo.html) pour le branchement du
+// Test du code RÉEL (extrait des fichiers assets/app-part*.js) pour le branchement du
 // vrai maillage patient (segmentation IA réelle) dans l'onglet "Jumeau numérique" PBD,
 // qui utilisait jusque-là exclusivement une anatomie procédurale factice
 // (buildTwinGeometry() -> makeLumpGeometry()), sans aucun rapport avec le patient.
@@ -27,8 +27,13 @@ const THREE = global.THREE;
 const fs = require('fs');
 const path = require('path');
 
-const htmlPath = path.join(__dirname, '..', 'generalsurg_plan_mimo .html');
-const html = fs.readFileSync(htmlPath, 'utf8');
+// Le JS a été extrait de l'ancien HTML monolithique vers assets/app-part*.js
+// (voir le découpage frontend) : on reconstitue le même contenu combiné en
+// concaténant les 3 fichiers dans leur ordre d'exécution d'origine, pour que
+// les recherches de marqueurs ci-dessous continuent de fonctionner à l'identique.
+const html = ['app-part1.js', 'app-part2.js', 'app-part3.js']
+  .map(f => fs.readFileSync(path.join(__dirname, '..', 'assets', f), 'utf8'))
+  .join('\n');
 
 function assert(cond, msg) {
   if (!cond) { console.error('❌ ÉCHEC:', msg); process.exitCode = 1; }

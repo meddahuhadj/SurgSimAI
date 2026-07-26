@@ -1,4 +1,4 @@
-// Test du code RÉEL (extrait de generalsurg_plan_mimo.html) pour deux problèmes trouvés en
+// Test du code RÉEL (extrait des fichiers assets/app-part*.js) pour deux problèmes trouvés en
 // auditant la fonctionnalité d'export :
 //
 // 1. generateDicomSR() et generateFhirR5() lisaient `state.staging` et `state.patient`, deux
@@ -14,8 +14,13 @@
 const fs = require('fs');
 const path = require('path');
 
-const htmlPath = path.join(__dirname, '..', 'generalsurg_plan_mimo .html');
-const html = fs.readFileSync(htmlPath, 'utf8');
+// Le JS a été extrait de l'ancien HTML monolithique vers assets/app-part*.js
+// (voir le découpage frontend) : on reconstitue le même contenu combiné en
+// concaténant les 3 fichiers dans leur ordre d'exécution d'origine, pour que
+// les recherches de marqueurs ci-dessous continuent de fonctionner à l'identique.
+const html = ['app-part1.js', 'app-part2.js', 'app-part3.js']
+  .map(f => fs.readFileSync(path.join(__dirname, '..', 'assets', f), 'utf8'))
+  .join('\n');
 
 function extractFunction(src, name) {
   const marker = `function ${name}(`;

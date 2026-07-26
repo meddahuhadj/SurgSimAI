@@ -1,4 +1,4 @@
-// Test du code RÉEL (extrait tel quel de generalsurg_plan_mimo.html, pas une réécriture) qui
+// Test du code RÉEL (extrait tel quel des fichiers assets/app-part*.js, pas une réécriture) qui
 // décide si le volume d'organe/score de risque affichés viennent d'une vraie segmentation
 // (TotalSegmentator, via realMeshGroup) ou d'une estimation procédurale — la distinction
 // "réel vs simulé" ajoutée pour la planification réelle. Couvre aussi la régression de
@@ -10,8 +10,13 @@
 const fs = require('fs');
 const path = require('path');
 
-const htmlPath = path.join(__dirname, '..', 'generalsurg_plan_mimo .html');
-const html = fs.readFileSync(htmlPath, 'utf8');
+// Le JS a été extrait de l'ancien HTML monolithique vers assets/app-part*.js
+// (voir le découpage frontend) : on reconstitue le même contenu combiné en
+// concaténant les 3 fichiers dans leur ordre d'exécution d'origine, pour que
+// les recherches de marqueurs ci-dessous continuent de fonctionner à l'identique.
+const html = ['app-part1.js', 'app-part2.js', 'app-part3.js']
+  .map(f => fs.readFileSync(path.join(__dirname, '..', 'assets', f), 'utf8'))
+  .join('\n');
 
 // Extraction par appariement d'accolades (pas de regex fragile face à des accolades imbriquées).
 function extractFunction(src, name) {
