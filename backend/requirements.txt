@@ -1,0 +1,29 @@
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+httpx>=0.27.0
+pydantic>=2.0
+python-dotenv>=1.0.0
+python-jose[cryptography]>=3.3
+passlib[bcrypt]>=1.7
+bcrypt<4.1
+python-multipart>=0.0.9
+sqlalchemy>=2.0.0
+alembic>=1.13.0
+psycopg2-binary>=2.9.9
+pyotp>=2.9.0
+qrcode[pil]>=7.4.2
+# Pipeline de maillages 3D (marching cubes -> STL/GLB) — léger, pas de GPU requis.
+# Fonctionne même sans TotalSegmentator installé (voir requirements-segmentation.txt).
+nibabel>=5.2.0
+scikit-image>=0.22.0
+trimesh>=4.0.0
+# Backend de décimation utilisé par trimesh.simplify_quadric_decimation (mask_to_glb,
+# decimate_glb) — requis dès qu'un maillage brut dépasse decimate_target_faces (30000).
+fast-simplification>=0.1.7
+# Index spatial requis par trimesh.proximity (marge oncologique tumeur<->vaisseaux,
+# distance surface-a-surface reelle) — voir segmentation_service.py:/segmentation/margin
+rtree>=1.0.0
+# Connecteur PACS réel (DICOMweb QIDO-RS/WADO-RS) — priorité 4 de la feuille de route
+dicomweb-client>=0.61.0
+pydicom>=3.0.0
+pynetdicom>=3.0.0

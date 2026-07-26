@@ -1,0 +1,5 @@
+# Dépendances de test uniquement — ne pas installer en production.
+# pip install -r requirements.txt -r requirements-dev.txt --break-system-packages
+pytest>=8.0.0
+pytest-asyncio>=0.24.0
+hl7>=0.4.5

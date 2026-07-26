@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: generalsurg_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: generalsurg
+      POSTGRES_PASSWORD: generalsurg
+      POSTGRES_DB: generalsurg
+    ports:
+      - "5432:5432"
+    volumes:
+      - generalsurg_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U generalsurg -d generalsurg"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    container_name: generalsurg_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://generalsurg:generalsurg@db:5432/generalsurg
+      JWT_SECRET: ${JWT_SECRET:-changez-moi-en-production}
+      GEMINI_KEY: ${GEMINI_KEY:-}
+      GROQ_KEY: ${GROQ_KEY:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "alembic -c migrations/alembic.ini upgrade head &&
+             uvicorn main:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  generalsurg_pgdata:

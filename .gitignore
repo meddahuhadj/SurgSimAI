@@ -1,0 +1,42 @@
+# Secrets — ne jamais versionner
+.env
+backend/.env
+*.env
+!*.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Bases de données locales (dev/test uniquement — jamais de vraies données patients versionnées)
+*.db
+*.sqlite
+*.sqlite3
+
+# Données générées / uploads (DICOM, maillages, exports)
+backend/storage/dicom_series/*
+backend/storage/meshes/*
+backend/storage/meshes_v2/*
+backend/storage/exports_v2/*
+!backend/storage/**/.gitkeep
+storage/*
+!storage/.gitkeep
+
+# Rapports de tests / logs
+pbdtest_reports/*.log
+*.log
+
+# Outils / éditeurs
+.vscode/
+.qodo/
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# OS
+Thumbs.db
+.DS_Store

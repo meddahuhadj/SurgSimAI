@@ -1,0 +1,16 @@
+# Service RÉEL de segmentation hépatique (TotalSegmentator, nnU-Net)
+# pip install -r requirements.txt -r requirements-segmentation.txt
+#
+# GPU recommandé : installez d'abord torch avec CUDA correspondant à
+# votre machine (voir https://pytorch.org/get-started/locally/) AVANT
+# TotalSegmentator, sinon vous récupérerez la version CPU (fonctionnelle
+# mais nettement plus lente : plusieurs minutes par série au lieu de ~10s).
+#
+# Vérifiez ce qui est détecté sur votre serveur via GET /segmentation/capabilities
+# une fois le backend démarré.
+
+TotalSegmentator>=2.15.0
+dicom2nifti>=2.4.0
+
+# nibabel, scikit-image, trimesh sont déjà dans requirements.txt (pipeline de
+# maillage, indépendant de TotalSegmentator) — pas besoin de les réinstaller ici.
