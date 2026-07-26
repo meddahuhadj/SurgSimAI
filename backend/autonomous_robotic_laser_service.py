@@ -31,6 +31,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db import get_db
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v2/autonomous", tags=["autonomous-robotic-laser"])
 
@@ -121,7 +124,7 @@ async def execute_autonomous_robotic_task(
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[autonomous_robotic] Erreur SQL audit_logs: {e}")
+        logger.error("Erreur SQL audit_logs: %s", e)
         
     return {
         "execution_event_id": execution_id,
@@ -177,7 +180,7 @@ async def trigger_instant_human_takeover(
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[autonomous_robotic] Erreur SQL audit_logs: {e}")
+        logger.error("Erreur SQL audit_logs: %s", e)
         
     return {
         "takeover_event_id": takeover_id,

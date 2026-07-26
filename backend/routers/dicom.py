@@ -16,20 +16,23 @@ pas d'un APIRouter — main.py reste donc responsable de ce câblage final).
 """
 
 import hashlib
+import logging
 import os
 import uuid
 from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import models
+import resilience
 from db import get_db
 from deps import get_current_user, write_audit
+from schemas import DicomMetadata, DicomUploadResponse, SegmentationStartResponse
 
 router = APIRouter(tags=["dicom"])
+logger = logging.getLogger("generalsurg.dicom")
 
 # Dossier où sont réellement sauvegardés les fichiers .dcm des séries
 # importées (upload manuel, PACS DICOMweb, PACS DIMSE). Jusqu'à cette session,
@@ -49,34 +52,18 @@ try:
     segmentation_service.MESH_STORAGE.mkdir(parents=True, exist_ok=True)
     REAL_SEGMENTATION_AVAILABLE = True
 except Exception as e:  # noqa: BLE001
-    print(f"[startup] Pipeline de segmentation réelle non chargé ({e}). "
-          f"Aucune route /segmentation/* disponible tant que segmentation_service.py "
-          f"n'est pas importable — vérifier requirements-segmentation.txt.")
+    logger.warning("Pipeline de segmentation réelle non chargé: %s. "
+                   "Aucune route /segmentation/* disponible tant que segmentation_service.py "
+                   "n'est pas importable — vérifier requirements-segmentation.txt.", e)
     segmentation_service = None
     REAL_SEGMENTATION_AVAILABLE = False
 
 
-class DicomMetadata(BaseModel):
-    id: str
-    series_uid: str
-    study_uid: str
-    modality: str
-    slice_thickness_mm: float
-    rows: int
-    cols: int
-    num_slices: int
-    filename: Optional[str] = None
-    local_path: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
-
-@router.post("/dicom/upload")
+@router.post("/dicom/upload", response_model=DicomUploadResponse)
 async def upload_dicom(patient_id: str, study_uid: str, modality: str = "CT", slice_thickness_mm: float = 1.0,
                         file: UploadFile = File(...), request: Request = None,
                         current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not db.query(models.Patient).get(patient_id):
+    if not db.get(models.Patient, patient_id):
         raise HTTPException(404, "Patient introuvable.")
     content = await file.read()
     sha = hashlib.sha256(content).hexdigest()[:16]
@@ -109,7 +96,7 @@ async def list_dicom(patient_id: str, current: models.User = Depends(get_current
     return db.query(models.DicomSeries).filter(models.DicomSeries.patient_id == patient_id).all()
 
 
-@router.post("/segmentation/from-series/{series_id}", status_code=202)
+@router.post("/segmentation/from-series/{series_id}", status_code=202, response_model=SegmentationStartResponse)
 async def segment_from_existing_series(series_id: str, request: Request,
                                         current: models.User = Depends(get_current_user),
                                         db: Session = Depends(get_db)):
@@ -119,10 +106,14 @@ async def segment_from_existing_series(series_id: str, request: Request,
     manquait entre l'import PACS/DICOM et le viewer 3D : avant cette
     session, aucune série importée n'était réellement sauvegardée sur
     disque, donc aucune ne pouvait être segmentée sans re-upload."""
+    # Rate limiting : opération GPU lourde, 5 req/min/IP max.
+    client_ip = request.client.host if request.client else "unknown"
+    resilience.SEGMENTATION_RATE_LIMITER.check(client_ip)
+
     if not REAL_SEGMENTATION_AVAILABLE:
         raise HTTPException(503, "Pipeline de segmentation réelle non disponible côté serveur "
                                   "(TotalSegmentator/dicom2nifti non installés).")
-    series = db.query(models.DicomSeries).get(series_id)
+    series = db.get(models.DicomSeries, series_id)
     if not series:
         raise HTTPException(404, "Série DICOM introuvable.")
     if not series.local_path:

@@ -10,73 +10,21 @@ Endpoints exposés :
 """
 
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import models
 from db import get_db
 from deps import get_current_user, write_audit
+from schemas import (
+    PatientCreate, PatientOut, PatientUpdate,
+    SegmentCreate, SegmentOut,
+)
 from specialties import Specialty
 
 router = APIRouter(tags=["patients"])
-
-
-class PatientBase(BaseModel):
-    id: str = Field(..., min_length=1, max_length=32)
-    nom: str
-    age: int = Field(..., ge=0, le=150)
-    sexe: Literal["M", "F"]
-    poids_kg: float = Field(..., ge=1, le=500)
-    taille_cm: float = Field(..., ge=30, le=250)
-    diagnostic: str
-    chirurgien: str
-    specialty: Specialty = "hbp"
-    urgence: Literal["vert", "orange", "rouge"] = "vert"
-    note: Optional[str] = None
-
-
-class PatientCreate(PatientBase):
-    pass
-
-
-class PatientUpdate(BaseModel):
-    nom: Optional[str] = None
-    age: Optional[int] = Field(None, ge=0, le=150)
-    poids_kg: Optional[float] = Field(None, ge=1, le=500)
-    taille_cm: Optional[float] = Field(None, ge=30, le=250)
-    diagnostic: Optional[str] = None
-    specialty: Optional[Specialty] = None
-    urgence: Optional[Literal["vert", "orange", "rouge"]] = None
-    note: Optional[str] = None
-
-
-class PatientOut(PatientBase):
-    created_at: datetime
-    updated_at: datetime
-    bsa: Optional[float] = None
-
-    class Config:
-        from_attributes = True
-
-
-class SegmentCreate(BaseModel):
-    id: str
-    type: Literal["organe", "lesion", "resection", "structure_tubulaire", "ganglion"]
-    volume_ml: float
-    label: str
-    color_hex: str = "#ff0000"
-    mesh_ref: Optional[str] = None
-
-
-class SegmentOut(SegmentCreate):
-    patient_id: str
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 def _patient_out(p: models.Patient) -> PatientOut:
@@ -99,7 +47,7 @@ async def list_patients(specialty: Optional[Specialty] = None,
 @router.get("/patients/{patient_id}", response_model=PatientOut)
 async def get_patient(patient_id: str, request: Request,
                        current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    p = db.query(models.Patient).get(patient_id)
+    p = db.get(models.Patient, patient_id)
     if not p:
         raise HTTPException(404, "Patient introuvable.")
     write_audit(db, request, "Consultation dossier patient", "patient", user=current, patient_id=patient_id)
@@ -109,9 +57,9 @@ async def get_patient(patient_id: str, request: Request,
 @router.post("/patients", response_model=PatientOut, status_code=201)
 async def create_patient(p: PatientCreate, request: Request,
                           current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if db.query(models.Patient).get(p.id):
+    if db.get(models.Patient, p.id):
         raise HTTPException(400, "ID patient déjà existant.")
-    rec = models.Patient(**p.dict())
+    rec = models.Patient(**p.model_dump())
     db.add(rec)
     db.commit()
     db.refresh(rec)
@@ -122,10 +70,10 @@ async def create_patient(p: PatientCreate, request: Request,
 @router.put("/patients/{patient_id}", response_model=PatientOut)
 async def update_patient(patient_id: str, p: PatientUpdate, request: Request,
                           current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    rec = db.query(models.Patient).get(patient_id)
+    rec = db.get(models.Patient, patient_id)
     if not rec:
         raise HTTPException(404, "Patient introuvable.")
-    updates = p.dict(exclude_unset=True)
+    updates = p.model_dump(exclude_unset=True)
     for k, v in updates.items():
         setattr(rec, k, v)
     db.commit()
@@ -138,7 +86,7 @@ async def update_patient(patient_id: str, p: PatientUpdate, request: Request,
 @router.delete("/patients/{patient_id}")
 async def delete_patient(patient_id: str, request: Request,
                           current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    rec = db.query(models.Patient).get(patient_id)
+    rec = db.get(models.Patient, patient_id)
     if not rec:
         raise HTTPException(404, "Patient introuvable.")
     db.delete(rec)
@@ -149,7 +97,7 @@ async def delete_patient(patient_id: str, request: Request,
 
 @router.get("/patients/{patient_id}/segments", response_model=List[SegmentOut])
 async def list_segments(patient_id: str, current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not db.query(models.Patient).get(patient_id):
+    if not db.get(models.Patient, patient_id):
         raise HTTPException(404, "Patient introuvable.")
     return db.query(models.Segment).filter(models.Segment.patient_id == patient_id).all()
 
@@ -157,9 +105,9 @@ async def list_segments(patient_id: str, current: models.User = Depends(get_curr
 @router.post("/patients/{patient_id}/segments", response_model=SegmentOut, status_code=201)
 async def create_segment(patient_id: str, s: SegmentCreate, request: Request,
                           current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not db.query(models.Patient).get(patient_id):
+    if not db.get(models.Patient, patient_id):
         raise HTTPException(404, "Patient introuvable.")
-    rec = models.Segment(patient_id=patient_id, **s.dict())
+    rec = models.Segment(patient_id=patient_id, **s.model_dump())
     db.add(rec)
     db.commit()
     db.refresh(rec)

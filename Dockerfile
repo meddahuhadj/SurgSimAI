@@ -62,7 +62,7 @@ EXPOSE 8000
 
 # Vérification de santé native (Healthcheck)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8000/api/v2/compliance/mdr-fda-status || exit 1
+    CMD curl -f http://localhost:8000/readyz || exit 1
 
 # Démarrage du serveur Uvicorn haute performance avec workers asynchrones
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--proxy-headers"]

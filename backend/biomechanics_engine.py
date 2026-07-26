@@ -49,8 +49,8 @@ class ElasticRegistrationRequest(BaseModel):
     twin_id: str = Field(..., description="ID unique du jumeau numérique préopératoire")
     intraop_point_cloud: List[List[float]] = Field(
         ...,
-        example=[[10.2, 24.5, -5.1], [12.0, 25.1, -4.8], [15.4, 22.0, -6.2]],
-        description="Nuage de points 3D peropératoire capturé par échographie trackée ou stéréovision AR"
+        description="Nuage de points 3D peropératoire capturé par échographie trackée ou stéréovision AR",
+        json_schema_extra={"example": [[10.2, 24.5, -5.1], [12.0, 25.1, -4.8], [15.4, 22.0, -6.2]]},
     )
     stiffness_regularization: float = Field(0.05, description="Facteur de régularisation d'énergie de déformation (alpha)")
     max_iterations: int = Field(50, description="Nombre maximal d'itérations pour le solveur d'optimisation non-linéaire")

@@ -11,31 +11,20 @@ Endpoints exposés :
 import asyncio
 import json
 import logging
-from typing import List, Literal
+from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket
 import httpx
 
 import models
 import resilience
 from ai_config import GEMINI_KEY, GEMINI_MODEL, GROQ_KEY, GROQ_MODEL
 from deps import get_current_user
-from specialties import Specialty, SPECIALTY_LABELS
+from schemas import AIProxyRequest, ChatRequest, ChatResponse
+from specialties import SPECIALTY_LABELS
 
 router = APIRouter(tags=["chat"])
-logger = logging.getLogger("generalsurg.resilience")
-
-
-class ChatRequest(BaseModel):
-    message: str
-    specialty: Specialty = "hbp"
-    context: Literal["surgical-planning", "surgical-summary"] = "surgical-planning"
-
-
-class AIRequest(BaseModel):
-    model: str
-    body: dict
+logger = logging.getLogger("generalsurg.chat")
 
 
 # Instructions de commandes d'action pour l'interface — miroir exact de
@@ -57,8 +46,12 @@ ACTION_COMMAND_INSTRUCTIONS = (
 )
 
 
-@router.post("/chat")
-async def chat(req: ChatRequest, current: models.User = Depends(get_current_user)):
+@router.post("/chat", response_model=ChatResponse)
+async def chat(req: ChatRequest, request: Request, current: models.User = Depends(get_current_user)):
+    # Rate limiting : protège contre les abus sur l'appel IA (coûteux en tokens).
+    client_ip = request.client.host if request.client else "unknown"
+    resilience.CHAT_RATE_LIMITER.check(client_ip)
+
     label = SPECIALTY_LABELS.get(req.specialty, "chirurgie générale")
     system_prompt = (
         f"Tu es GeneralSurg Plan IA, assistant chirurgical expert en {label}. "
@@ -117,7 +110,7 @@ async def chat(req: ChatRequest, current: models.User = Depends(get_current_user
 
 
 @router.post("/api/ai/gemini")
-async def proxy_gemini(req: AIRequest, current: models.User = Depends(get_current_user)):
+async def proxy_gemini(req: AIProxyRequest, current: models.User = Depends(get_current_user)):
     if not GEMINI_KEY:
         raise HTTPException(503, "Clé Gemini non configurée.")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{req.model}:generateContent?key={GEMINI_KEY}"
@@ -180,9 +173,10 @@ async def ws_chat_stream(ws: WebSocket):
                         response.raise_for_status()
         except Exception as e:
             resilience.GEMINI_BREAKER.on_failure()
-            print(f"[WS] Gemini streaming erreur: {e}, fallback Groq (disjoncteur: {resilience.GEMINI_BREAKER.status()})")
+            logger.warning("Gemini streaming erreur: %s, fallback Groq (disjoncteur: %s)",
+                           e, resilience.GEMINI_BREAKER.status())
     elif GEMINI_KEY:
-        print(f"[WS] Gemini ignoré (disjoncteur ouvert) — {resilience.GEMINI_BREAKER.status()}")
+        logger.info("Gemini ignoré (disjoncteur ouvert) — %s", resilience.GEMINI_BREAKER.status())
 
     if GROQ_KEY and resilience.GROQ_BREAKER.state != "open":
         try:
@@ -204,9 +198,10 @@ async def ws_chat_stream(ws: WebSocket):
                 r.raise_for_status()
         except Exception as e:
             resilience.GROQ_BREAKER.on_failure()
-            print(f"[WS] Groq fallback erreur: {e} (disjoncteur: {resilience.GROQ_BREAKER.status()})")
+            logger.warning("Groq fallback erreur: %s (disjoncteur: %s)",
+                           e, resilience.GROQ_BREAKER.status())
     elif GROQ_KEY:
-        print(f"[WS] Groq ignoré (disjoncteur ouvert) — {resilience.GROQ_BREAKER.status()}")
+        logger.info("Groq ignoré (disjoncteur ouvert) — %s", resilience.GROQ_BREAKER.status())
 
     await ws.send_text(json.dumps({
         "error": "IA indisponible (Gemini et Groq injoignables ou en cooldown après échecs répétés). "

@@ -36,6 +36,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db import get_db
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v2/robotics", tags=["robotic-ras-teleoperation"])
 
@@ -191,7 +194,7 @@ async def trigger_robotic_safety_interlock(
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[robotic_ras] Erreur SQL audit_logs: {e}")
+        logger.error("Erreur SQL audit_logs: %s", e)
         
     return {
         "interlock_event_id": interlock_id,

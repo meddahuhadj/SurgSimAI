@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 import models
 from db import get_db
 from deps import get_current_user, write_audit
+from schemas import VolumetrieResponse
 
 router = APIRouter(tags=["volumetrie"])
 
@@ -28,10 +29,10 @@ def _flr_threshold(is_cirrhotic: bool, bsa: float) -> float:
     return max(25.0, 20.0 + 10.0 * (1.0 - bsa / 1.9))
 
 
-@router.get("/patients/{patient_id}/volumetrie")
+@router.get("/patients/{patient_id}/volumetrie", response_model=VolumetrieResponse)
 async def get_volumetrie(patient_id: str, request: Request, margin_cm: float = 1.0, is_cirrhotic: bool = False,
                           current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    p = db.query(models.Patient).get(patient_id)
+    p = db.get(models.Patient, patient_id)
     if not p:
         raise HTTPException(404, "Patient introuvable.")
     segments = db.query(models.Segment).filter(models.Segment.patient_id == patient_id).all()

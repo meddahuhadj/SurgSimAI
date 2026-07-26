@@ -145,6 +145,13 @@ class RateLimiter:
 # (2FA compris) mais coupe un brute-force en boucle serrée.
 AUTH_RATE_LIMITER = RateLimiter(name="auth_token", max_attempts=10, window_seconds=60.0)
 
+# 30 requêtes / minute / IP sur le chat IA — protège contre les abus tout en
+# laissant une marge pour un usage clinique normal (questions rapides en OR).
+CHAT_RATE_LIMITER = RateLimiter(name="chat", max_attempts=30, window_seconds=60.0)
+
+# 5 requêtes / minute / IP sur la segmentation — opération lourde (GPU, temps réel).
+SEGMENTATION_RATE_LIMITER = RateLimiter(name="segmentation", max_attempts=5, window_seconds=60.0)
+
 
 async def call_with_resilience(
     fn: Callable[[], Awaitable[T]],

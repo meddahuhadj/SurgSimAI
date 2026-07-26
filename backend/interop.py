@@ -21,7 +21,7 @@ Portée honnête :
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
 
@@ -85,7 +85,7 @@ def fhir_imaging_study(p, dicom_series: List) -> Dict[str, Any]:
 def fhir_diagnostic_report(p, volumetrie: Optional[dict], segments: List) -> Dict[str, Any]:
     """Construit un DiagnosticReport (compte-rendu de planification chirurgicale)
     avec un Observation par mesure de volumétrie et par segment anatomique."""
-    now = datetime.utcnow().isoformat() + "Z"
+    now = datetime.now(UTC).isoformat() + "Z"
     observations = []
 
     def obs(code_text: str, value: Optional[float], unit: str, obs_id: str) -> Dict[str, Any]:
@@ -113,7 +113,7 @@ def fhir_diagnostic_report(p, volumetrie: Optional[dict], segments: List) -> Dic
     for i, s in enumerate(segments):
         observations.append(obs(f"Segment anatomique : {s.label or s.type}", s.volume_ml, "mL", f"seg-{i}"))
 
-    report_id = f"report-{p.id}-{int(datetime.utcnow().timestamp())}"
+    report_id = f"report-{p.id}-{int(datetime.now(UTC).timestamp())}"
     return {
         "resourceType": "Bundle",
         "type": "collection",
@@ -138,7 +138,7 @@ def fhir_diagnostic_report(p, volumetrie: Optional[dict], segments: List) -> Dic
 # HL7 v2.x — ORU^R01 (compte-rendu d'observation structuré)
 # ---------------------------------------------------------------------------
 def _hl7_ts(dt: Optional[datetime] = None) -> str:
-    return (dt or datetime.utcnow()).strftime("%Y%m%d%H%M%S")
+    return (dt or datetime.now(UTC)).strftime("%Y%m%d%H%M%S")
 
 
 def _hl7_escape(text: str) -> str:
@@ -158,7 +158,7 @@ def hl7_oru_r01(p, volumetrie: Optional[dict], segments: List, sender_app: str =
     transportant les résultats de planification chirurgicale, destiné à être
     envoyé à un moteur d'interface HL7 (Mirth, Ensemble, etc.) qui l'insérera
     dans le DPI de l'établissement."""
-    msg_id = message_control_id or f"GSP{int(datetime.utcnow().timestamp())}"
+    msg_id = message_control_id or f"GSP{int(datetime.now(UTC).timestamp())}"
     ts = _hl7_ts()
     sex = {"M": "M", "F": "F"}.get(p.sexe, "U")
 
@@ -196,7 +196,7 @@ def hl7_adt_a08(p, sender_app: str = "GeneralSurgPlan", sender_facility: str = "
     A08 plutôt que A01 (admission) : cette application planifie l'acte, elle
     ne gère pas les mouvements d'hospitalisation (l'ADT d'admission réelle
     reste piloté par le HIS de l'établissement)."""
-    msg_id = message_control_id or f"GSP{int(datetime.utcnow().timestamp())}"
+    msg_id = message_control_id or f"GSP{int(datetime.now(UTC).timestamp())}"
     ts = _hl7_ts()
     sex = {"M": "M", "F": "F"}.get(p.sexe, "U")
     segs = [
@@ -216,7 +216,7 @@ def hl7_orm_o01(p, procedure_label: str, sender_app: str = "GeneralSurgPlan",
     """Génère un message HL7 v2.5 ORM^O01 (demande d'examen/intervention),
     typiquement pour transmettre une demande d'intervention chirurgicale
     planifiée vers le système de programmation opératoire (RIS/HIS)."""
-    msg_id = message_control_id or f"GSP{int(datetime.utcnow().timestamp())}"
+    msg_id = message_control_id or f"GSP{int(datetime.now(UTC).timestamp())}"
     ts = _hl7_ts()
     sex = {"M": "M", "F": "F"}.get(p.sexe, "U")
     order_id = order_control_id or msg_id

@@ -32,6 +32,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db import get_db
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v2/epigenetics", tags=["epigenetic-rejuvenation-sonogenetics"])
 
@@ -149,7 +152,7 @@ async def modulate_optogenetic_gene_expression(
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[epigenetics_sono] Erreur SQL audit_logs: {e}")
+        logger.error("Erreur SQL audit_logs: %s", e)
         
     return {
         "modulation_event_id": mod_id,

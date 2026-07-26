@@ -27,15 +27,20 @@ Démarrage avec PostgreSQL :
 """
 
 import os
+import logging
+import time
+import traceback as _traceback
 from pathlib import Path
+from datetime import datetime
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from datetime import datetime
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from fastapi import Depends
+from sqlalchemy.exc import OperationalError, DBAPIError
 
 from db import get_db, init_db, DATABASE_URL
 import models
@@ -44,6 +49,7 @@ import resilience
 from deps import get_current_user, require_role, write_audit, oauth2_scheme  # noqa: F401 (re-exportés)
 from specialties import SPECIALTY_LABELS
 from ai_config import GEMINI_KEY, GROQ_KEY
+from logging_config import setup_logging, correlation_id_var, generate_correlation_id
 
 import routers.auth as auth_router
 import routers.patients as patients_router
@@ -51,6 +57,8 @@ import routers.dicom as dicom_router
 import routers.volumetrie as volumetrie_router
 import routers.chat as chat_router
 import routers.audit as audit_router
+from schemas import DicomSRExportRequest, DicomSRExportResponse
+import schemas
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -61,6 +69,10 @@ import routers.audit as audit_router
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000").split(",")
 SEED_DEMO_USERS = os.getenv("SEED_DEMO_USERS", "true").lower() == "true"
 
+# ── Logging structuré JSON + correlation IDs ───────────────────────────────
+setup_logging(os.getenv("LOG_LEVEL", "INFO"))
+logger = logging.getLogger("generalsurg.main")
+
 # ── Garde-fou anti-mauvaise-config (priorité sécurité, ajouté suite à l'audit
 # de juillet 2026) ───────────────────────────────────────────────────────────
 # APP_ENV=production est le SEUL signal qui doit déterminer un déploiement
@@ -68,7 +80,7 @@ SEED_DEMO_USERS = os.getenv("SEED_DEMO_USERS", "true").lower() == "true"
 # signal (un dev peut très bien tester avec Postgres local). Par défaut
 # "development", pour ne rien casser sur les postes de dev existants.
 APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
-_JWT_SECRET_IS_DEFAULT = sec.JWT_SECRET == "CHANGEZ-MOI-EN-PRODUCTION"
+_JWT_SECRET_IS_DEFAULT = getattr(sec, "_JWT_SECRET_IS_DEFAULT", sec.JWT_SECRET == "CHANGEZ-MOI-EN-PRODUCTION")
 
 if APP_ENV == "production":
     _fatal_errors = []
@@ -78,6 +90,15 @@ if APP_ENV == "production":
             "(publique, visible dans security.py). N'importe qui peut forger "
             "un jeton d'authentification valide. Définissez une vraie valeur "
             "aléatoire dans .env (ex. `openssl rand -hex 32`)."
+        )
+    if not getattr(sec, "JWT_SECRET_EXPLICITLY_CONFIGURED", True):
+        _fatal_errors.append(
+            "JWT_SECRET n'est pas défini dans l'environnement : security.py génère "
+            "alors un secret aléatoire DIFFÉRENT à chaque process. Avec plusieurs "
+            "workers Uvicorn (voir --workers dans le Dockerfile), un jeton signé "
+            "par un worker serait rejeté par un autre — authentification cassée de "
+            "façon intermittente et silencieuse. Définissez une vraie valeur fixe "
+            "dans .env (ex. `openssl rand -hex 32`)."
         )
     if SEED_DEMO_USERS:
         _fatal_errors.append(
@@ -112,12 +133,40 @@ elif _JWT_SECRET_IS_DEFAULT or SEED_DEMO_USERS:
     # Hors production : on n'empêche rien (workflow de dev), mais on prévient
     # bruyamment dans les logs pour qu'un déploiement par erreur avec
     # APP_ENV oublié ne passe pas inaperçu.
-    print(f"[startup] ⚠️  APP_ENV={APP_ENV!r} — secret JWT par défaut et/ou "
-          f"comptes de démo actifs. Ne JAMAIS utiliser cette configuration "
-          f"pour un vrai patient. Positionnez APP_ENV=production dans .env "
-          f"pour que ces réglages non sûrs bloquent le démarrage.")
+    logger.warning("APP_ENV=%s — secret JWT par défaut et/ou "
+                   "comptes de démo actifs. Ne JAMAIS utiliser cette configuration "
+                   "pour un vrai patient. Positionnez APP_ENV=production dans .env "
+                   "pour que ces réglages non sûrs bloquent le démarrage.", APP_ENV)
 
-app = FastAPI(title="GeneralSurg Plan MIMO — Backend", version="2.0.0")
+app = FastAPI(title="GeneralSurg Plan MIMO — Backend", version="2.1.0")
+
+# ---------------------------------------------------------------------------
+# Middleware correlation ID — chaque requête reçoit un ID unique tracable
+# dans les logs et retourné dans le header X-Correlation-ID.
+# ---------------------------------------------------------------------------
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    cid = request.headers.get("X-Correlation-ID") or generate_correlation_id()
+    correlation_id_var.set(cid)
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = cid
+    return response
+
+request_logger = logging.getLogger("generalsurg.request")
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    start = time.monotonic()
+    response = await call_next(request)
+    duration_ms = (time.monotonic() - start) * 1000
+    request_logger.info(
+        "%s %s → %d (%.0f ms)",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+    )
+    return response
 
 app.add_middleware(
     CORSMiddleware,
@@ -136,18 +185,21 @@ app.add_middleware(
 # diagnostic. Chaque incident reçoit un error_id que le chirurgien peut
 # communiquer au support technique.
 # ---------------------------------------------------------------------------
-import logging
 import traceback as _traceback
 from sqlalchemy.exc import OperationalError, DBAPIError
 
-logger = logging.getLogger("generalsurg.resilience")
+resilience_logger = logging.getLogger("generalsurg.resilience")
 
 
 def _log_incident(request: Request, exc: Exception) -> str:
     import uuid
     error_id = uuid.uuid4().hex[:12]
-    logger.error("[incident %s] %s %s -> %s: %s\n%s", error_id, request.method, request.url.path,
-                 type(exc).__name__, exc, _traceback.format_exc())
+    cid = correlation_id_var.get()
+    resilience_logger.error(
+        "[incident %s] correlation_id=%s %s %s -> %s: %s",
+        error_id, cid or "-", request.method, request.url.path,
+        type(exc).__name__, exc, exc_info=True,
+    )
     return error_id
 
 
@@ -177,7 +229,22 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 # ---------------------------------------------------------------------------
 # Routers par domaine (voir routers/*.py)
+# API versionnée sous /api/v1/ + compatibilité ascendante sans prefix.
+# Les mêmes routers sont montés deux fois : avec /api/v1 (nouveau) et
+# sans prefix (anciens chemins, pour que les tests et les clients existants
+# continuent de fonctionner sans modification).
 # ---------------------------------------------------------------------------
+API_V1 = "/api/v1"
+
+# Version v1 (nouvelle)
+app.include_router(auth_router.router, prefix=API_V1)
+app.include_router(patients_router.router, prefix=API_V1)
+app.include_router(dicom_router.router, prefix=API_V1)
+app.include_router(volumetrie_router.router, prefix=API_V1)
+app.include_router(chat_router.router, prefix=API_V1)
+app.include_router(audit_router.router, prefix=API_V1)
+
+# Compatibilité ascendante (anciens chemins, sans prefix)
 app.include_router(auth_router.router)
 app.include_router(patients_router.router)
 app.include_router(dicom_router.router)
@@ -222,7 +289,7 @@ for _mod_name, _router_attr in _real_services:
         _mod = __import__(_mod_name)
         app.include_router(getattr(_mod, _router_attr))
     except Exception as e:  # noqa: BLE001
-        print(f"[startup] {_mod_name}.{_router_attr} non chargé ({e}).")
+        logger.warning("Service %s.%s non chargé: %s", _mod_name, _router_attr, e)
         PACS_ROUTER_AVAILABLE = False
 
 # ── Services EXPLORATOIRES (Jalons M21-M40) ─────────────────────────────────
@@ -265,18 +332,17 @@ _exploratory_services = [
     "real_patient_dicom_mesh_service",
 ]
 if RESEARCH_MODE:
-    print("[startup] ⚠️ RESEARCH_MODE=true — chargement des services exploratoires "
-          "NON VALIDÉS CLINIQUEMENT. Ne jamais activer ce flag en production.")
+    logger.warning("RESEARCH_MODE=true — chargement des services exploratoires "
+                   "NON VALIDÉS CLINIQUEMENT. Ne jamais activer ce flag en production.")
     for _mod_name in _exploratory_services:
         try:
             _mod = __import__(_mod_name)
             app.include_router(_mod.router)
         except Exception as e:  # noqa: BLE001
-            print(f"[startup] Service exploratoire {_mod_name} non chargé ({e}).")
+            logger.warning("Service exploratoire %s non chargé: %s", _mod_name, e)
 else:
-    print(f"[startup] Mode clinique (RESEARCH_MODE=false) — "
-          f"{len(_exploratory_services)} services exploratoires non chargés : "
-          f"{', '.join(_exploratory_services)}")
+    logger.info("Mode clinique (RESEARCH_MODE=false) — %d services exploratoires non chargés",
+                len(_exploratory_services))
 
 
 # ---------------------------------------------------------------------------
@@ -298,29 +364,133 @@ def on_startup():
                         hashed_password=sec.hash_password("changeme"),
                     ))
                 db.commit()
-                print("[startup] Utilisateurs de démonstration créés (dr.hadj / dr.benali, mdp: changeme). "
-                      "⚠️  À supprimer avant toute mise en production.")
+                logger.info("Utilisateurs de démonstration créés (dr.hadj / dr.benali, mdp: changeme). "
+                            "À supprimer avant toute mise en production.")
         finally:
             db.close()
+    # Nettoyage initial du stockage DICOM (TTL + quota)
+    try:
+        import storage_cleanup
+        result = storage_cleanup.run_cleanup()
+        logger.info("Nettoyage DICOM initial: %s", result)
+    except Exception as e:
+        logger.warning("Nettoyage DICOM initial échoué: %s", e)
 
 
 # ---------------------------------------------------------------------------
-# Santé / méta
+# Santé / méta — /health (liveness) + /readyz (readiness)
 # ---------------------------------------------------------------------------
-@app.get("/health")
+import time as _time
+_start_time = _time.monotonic()
+
+
+@app.get("/health", response_model=schemas.HealthResponse)
+@app.get("/healthz")
 async def health():
-    return {"status": "ok", "ai": bool(GEMINI_KEY or GROQ_KEY), "specialties": list(SPECIALTY_LABELS.keys()),
-            "db": sec.JWT_SECRET != "CHANGEZ-MOI-EN-PRODUCTION" and "configured" or "default-secret-change-me",
-            "app_env": APP_ENV, "seed_demo_users": SEED_DEMO_USERS,
-            "pacs_fhir_hl7": PACS_ROUTER_AVAILABLE, "pacs_configured": bool(os.getenv("PACS_QIDO_URL")),
-            "circuit_breakers": {"gemini": resilience.GEMINI_BREAKER.status(),
-                                  "groq": resilience.GROQ_BREAKER.status(),
-                                  "pacs": resilience.PACS_BREAKER.status()}}
+    """Liveness : l'app est vivante et répond. Ne teste PAS les dépendances externes."""
+    return schemas.HealthResponse(
+        status="ok",
+        ai=bool(GEMINI_KEY or GROQ_KEY),
+        specialties=list(SPECIALTY_LABELS.keys()),
+        db="configured" if not getattr(sec, "_JWT_SECRET_IS_DEFAULT", False) else "default-secret-change-me",
+        app_env=APP_ENV,
+        seed_demo_users=SEED_DEMO_USERS,
+        pacs_fhir_hl7=PACS_ROUTER_AVAILABLE,
+        pacs_configured=bool(os.getenv("PACS_QIDO_URL")),
+        circuit_breakers={
+            "gemini": resilience.GEMINI_BREAKER.status(),
+            "groq": resilience.GROQ_BREAKER.status(),
+            "pacs": resilience.PACS_BREAKER.status(),
+        },
+        uptime_seconds=round(_time.monotonic() - _start_time, 1),
+    )
+
+
+@app.get("/readyz")
+async def readiness():
+    """Readiness : l'app peut servir du trafic. Vérifie la DB et le stockage."""
+    checks = {}
+    all_ok = True
+
+    # Test DB
+    try:
+        db = next(get_db())
+        db.execute(text("SELECT 1"))
+        db.close()
+        checks["database"] = "ok"
+    except Exception as e:
+        checks["database"] = f"error: {type(e).__name__}"
+        all_ok = False
+
+    # Test stockage DICOM
+    try:
+        dicom_dir = Path(os.getenv("DICOM_STORAGE_DIR", "./storage/dicom_series")).resolve()
+        if dicom_dir.is_dir():
+            checks["dicom_storage"] = "ok"
+        else:
+            checks["dicom_storage"] = "directory_missing"
+    except Exception:
+        checks["dicom_storage"] = "error"
+        all_ok = False
+
+    return schemas.ReadyResponse(
+        status="ready" if all_ok else "degraded",
+        checks=checks,
+    )
 
 
 @app.get("/specialties")
 async def list_specialties():
     return SPECIALTY_LABELS
+
+
+# ---------------------------------------------------------------------------
+# Admin : nettoyage manuel du stockage DICOM (réservé admin)
+# ---------------------------------------------------------------------------
+@app.post("/admin/storage/cleanup")
+async def admin_storage_cleanup(request: Request,
+                                 current: models.User = Depends(require_role("admin")),
+                                 db: Session = Depends(get_db)):
+    """Nettoyage manuel du stockage DICOM — supprime les séries expirées et
+    applique le quota. Réservé aux admins."""
+    import storage_cleanup
+    result = storage_cleanup.run_cleanup()
+    write_audit(db, request, "Nettoyage manuel stockage DICOM", "admin", user=current,
+                metadata=result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# RFC 7807 (Problem Details) — format standardisé pour les erreurs API
+# ---------------------------------------------------------------------------
+@app.exception_handler(HTTPException)
+async def rfc7807_exception_handler(request: Request, exc):
+    headers = getattr(exc, "headers", None) or {}
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "type": "about:blank",
+            "title": _HTTP_STATUS_TITLES.get(exc.status_code, "Erreur"),
+            "status": exc.status_code,
+            "detail": exc.detail,
+            "instance": str(request.url.path),
+        },
+        headers=headers,
+    )
+
+
+_HTTP_STATUS_TITLES = {
+    400: "Requête invalide",
+    401: "Non authentifié",
+    403: "Accès interdit",
+    404: "Ressource introuvable",
+    409: "Conflit",
+    422: "Données invalides",
+    429: "Trop de requêtes",
+    500: "Erreur interne",
+    502: "Service distant indisponible",
+    503: "Service temporairement indisponible",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -344,25 +514,25 @@ async def serve_frontend():
     return {"msg": "GeneralSurg Plan MIMO API — voir /docs pour la documentation."}
 
 
-@app.post("/export/dicom-sr")
-async def export_dicom_sr(data: dict, request: Request, current: models.User = Depends(get_current_user),
+@app.post("/export/dicom-sr", response_model=DicomSRExportResponse)
+async def export_dicom_sr(data: DicomSRExportRequest, request: Request, current: models.User = Depends(get_current_user),
                            db: Session = Depends(get_db)):
     sr_content = {
-        "PatientID": data.get("patient", {}).get("id"),
-        "PatientName": data.get("patient", {}).get("nom"),
-        "Specialty": data.get("specialty"),
+        "PatientID": data.patient.get("id"),
+        "PatientName": data.patient.get("nom"),
+        "Specialty": data.specialty,
         "StudyDate": datetime.now().strftime("%Y%m%d"),
         "SurgicalPlan": {
-            "OrganVolume": data.get("volumetrie", {}).get("organ_volume_ml"),
-            "LesionVolume": data.get("volumetrie", {}).get("lesion_volume_ml"),
-            "ResectionVolume": data.get("volumetrie", {}).get("volume_resection_ml"),
-            "RemnantPct": data.get("volumetrie", {}).get("remnant_pct"),
+            "OrganVolume": data.volumetrie.get("organ_volume_ml"),
+            "LesionVolume": data.volumetrie.get("lesion_volume_ml"),
+            "ResectionVolume": data.volumetrie.get("volume_resection_ml"),
+            "RemnantPct": data.volumetrie.get("remnant_pct"),
         },
-        "Observations": data.get("notes", ""),
+        "Observations": data.notes,
     }
     write_audit(db, request, "Export plan (DICOM SR)", "export", user=current,
-                patient_id=data.get("patient", {}).get("id"))
-    return JSONResponse(sr_content)
+                patient_id=data.patient.get("id"))
+    return DicomSRExportResponse(**sr_content)
 
 
 if __name__ == "__main__":

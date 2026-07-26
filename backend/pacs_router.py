@@ -56,7 +56,7 @@ DICOM_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _get_patient_or_404(db: Session, patient_id: str) -> models.Patient:
-    p = db.query(models.Patient).get(patient_id)
+    p = db.get(models.Patient, patient_id)
     if not p:
         raise HTTPException(404, "Patient introuvable.")
     return p

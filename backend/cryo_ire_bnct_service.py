@@ -34,6 +34,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db import get_db
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v2/cryo-bnct", tags=["cryo-ire-nspef-bnct-neutrons"])
 
@@ -146,7 +149,7 @@ async def trigger_bnct_intraoperative_irradiation(
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[cryo_bnct] Erreur SQL audit_logs: {e}")
+        logger.error("Erreur SQL audit_logs: %s", e)
         
     return {
         "bnct_event_id": bnct_id,

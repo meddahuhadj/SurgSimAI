@@ -30,6 +30,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db import get_db
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v2/organoid-assembly", tags=["organoid-4d-biomimetic-microvasculature"])
 
@@ -139,7 +142,7 @@ async def trigger_2pp_microvascular_anastomosis(
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[organoid_assembly] Erreur SQL audit_logs: {e}")
+        logger.error("Erreur SQL audit_logs: %s", e)
         
     return {
         "microvascularization_event_id": vasc_id,

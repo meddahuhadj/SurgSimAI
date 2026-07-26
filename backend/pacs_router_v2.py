@@ -45,21 +45,21 @@ EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 class DicomSegExportRequest(BaseModel):
     twin_id: str = Field(..., description="ID UUID du jumeau numérique contenant la segmentation 3D")
-    organ_label: str = Field(..., example="LIVER", description="Organe ou lésion segmentée")
+    organ_label: str = Field(..., description="Organe ou lésion segmentée", json_schema_extra={"example": "LIVER"})
     ai_model_name: str = Field("MONAI-SwinUNETR-v2.4", description="Nom du modèle IA auteur du masque")
-    voxel_count: int = Field(..., example=1450200, description="Nombre de voxels actifs dans le segment")
+    voxel_count: int = Field(..., description="Nombre de voxels actifs dans le segment", json_schema_extra={"example": 1450200})
 
 class DicomSrExportRequest(BaseModel):
     plan_id: str = Field(..., description="ID UUID du plan chirurgical à exporter en Structured Report")
-    ai_risk_score: float = Field(..., example=14.2, description="Score de risque morbi-mortalité prédit")
+    ai_risk_score: float = Field(..., description="Score de risque morbi-mortalité prédit", json_schema_extra={"example": 14.2})
     shap_summary: Dict[str, Any] = Field(..., description="Justification XAI SHAP par biomarqueur")
     planned_procedure: str = Field("Hépatectomie droite cœlioscopique", description="Acte chirurgical programmé")
 
 class FhirProcedureRequest(BaseModel):
     patient_id: str = Field(..., description="ID patient dans le DPI / base locale")
     procedure_code: str = Field("CCAM-HMFA004", description="Code acte chirurgical")
-    status: str = Field("preparation", example="preparation")
-    lead_surgeon_rpps: Optional[str] = Field(None, example="10002345678")
+    status: str = Field("preparation", json_schema_extra={"example": "preparation"})
+    lead_surgeon_rpps: Optional[str] = Field(None, json_schema_extra={"example": "10002345678"})
 
 # ---------------------------------------------------------------------------
 # Endpoints DICOMweb Streaming & Part 10 (Jalon M2)

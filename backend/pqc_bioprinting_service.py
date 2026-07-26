@@ -30,6 +30,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db import get_db
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v2/advanced", tags=["pqc-telesurgery-4d-bioprinting"])
 
@@ -142,7 +145,7 @@ async def generate_4d_bioprinting_gcode(
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[pqc_bioprinting] Erreur SQL audit_logs: {e}")
+        logger.error("Erreur SQL audit_logs: %s", e)
         
     return {
         "print_job_id": print_job_id,
@@ -199,7 +202,7 @@ async def seal_pqc_telesurgery_session(
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[pqc_bioprinting] Erreur SQL audit_logs: {e}")
+        logger.error("Erreur SQL audit_logs: %s", e)
         
     return {
         "pqc_session_id": session_id,

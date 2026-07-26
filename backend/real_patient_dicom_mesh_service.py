@@ -30,6 +30,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db import get_db
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v2/patient-anatomy", tags=["fictional-demo-anatomy-NOT-real"])
 
@@ -198,7 +201,7 @@ async def ingest_pacs_dicom_and_reconstruct_3d(
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[real_patient_dicom_mesh_service] Erreur SQL audit_logs: {e}")
+        logger.error("Erreur SQL audit_logs: %s", e)
 
     return {
         "reconstruction_event_id": reconstruct_id,

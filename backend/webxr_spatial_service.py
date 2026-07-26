@@ -37,6 +37,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db import get_db
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v2/webxr", tags=["webxr-spatial-computing"])
 
@@ -138,7 +141,7 @@ async def calibrate_spatial_coordinates(
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[webxr_spatial] Erreur SQL audit_logs: {e}")
+        logger.error("Erreur SQL audit_logs: %s", e)
         
     return {
         "calibration_id": calib_id,

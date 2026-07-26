@@ -6,34 +6,17 @@ Endpoint exposé :
     GET /audit
 """
 
-from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import models
 from db import get_db
 from deps import require_role
+from schemas import AuditOut
 
 router = APIRouter(tags=["audit"])
-
-
-class AuditOut(BaseModel):
-    id: str
-    username: Optional[str]
-    patient_id: Optional[str]
-    action: str
-    resource: Optional[str]
-    method: Optional[str]
-    path: Optional[str]
-    status_code: Optional[int]
-    niveau: str
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 @router.get("/audit", response_model=List[AuditOut])

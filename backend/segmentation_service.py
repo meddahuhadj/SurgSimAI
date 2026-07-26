@@ -68,6 +68,10 @@ import numpy as np
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from logging_config import get_logger
+
+logger = get_logger(__name__)
+
 router = APIRouter(prefix="/segmentation", tags=["segmentation"])
 
 # ------------------------------------------------------------------
@@ -175,7 +179,7 @@ def _maybe_build_mesh(job_id: str, nifti_path: Path, label_value: int, name: str
         job.setdefault("mesh_info", {})[name] = info
         return f"/meshes/{job_id}/{name}.glb"
     except Exception as e:  # noqa: BLE001
-        print(f"[mesh] Échec de génération du maillage '{name}' (label {label_value}): {e}")
+        logger.error("Échec de génération du maillage '%s' (label %s): %s", name, label_value, e)
         return None
 
 
@@ -193,7 +197,7 @@ def _maybe_build_lowpoly_twin_mesh(job_id: str, target_faces: int = 1500) -> Opt
         decimate_glb(in_path, out_path, target_faces=target_faces, color_rgba=MESH_COLORS["liver"])
         return f"/meshes/{job_id}/liver_total_lowpoly.glb"
     except Exception as e:  # noqa: BLE001
-        print(f"[mesh] Échec de génération du maillage bas-poly (Jumeau PBD): {e}")
+        logger.error("Échec de génération du maillage bas-poly (Jumeau PBD): %s", e)
         return None
 
 

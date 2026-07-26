@@ -32,6 +32,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db import get_db
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v2/bci", tags=["bci-cortical-haptics"])
 
@@ -132,7 +135,7 @@ async def decode_motor_intention_and_haptics(
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[bci_cortical] Erreur SQL audit_logs: {e}")
+        logger.error("Erreur SQL audit_logs: %s", e)
         
     return {
         "decoding_event_id": decoding_id,
@@ -184,7 +187,7 @@ async def trigger_neural_safety_interlock(
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[bci_cortical] Erreur SQL audit_logs: {e}")
+        logger.error("Erreur SQL audit_logs: %s", e)
         
     return {
         "interlock_event_id": interlock_id,

@@ -11,12 +11,11 @@ Endpoints exposés :
     POST /auth/register
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import models
@@ -24,38 +23,13 @@ import security as sec
 import resilience
 from db import get_db
 from deps import get_current_user, write_audit
+from schemas import (
+    TokenResponse, TwoFARequiredResponse, TwoFAVerifyRequest,
+    TwoFASetupResponse, TwoFAEnableRequest, TwoFADisableRequest,
+    TwoFARecoveryCodesResponse, UserRegisterRequest, RegisterResponse,
+)
 
 router = APIRouter(tags=["auth"])
-
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-
-
-class TwoFARequiredResponse(BaseModel):
-    requires_2fa: bool = True
-    pre_auth_token: str
-
-
-class TwoFAVerifyRequest(BaseModel):
-    pre_auth_token: str
-    code: str  # code TOTP à 6 chiffres, ou code de secours
-
-
-class TwoFAEnableRequest(BaseModel):
-    code: str
-
-
-class TwoFADisableRequest(BaseModel):
-    code: str
-
-
-class UserRegister(BaseModel):
-    username: str
-    password: str
-    full_name: str | None = None
 
 
 @router.post("/auth/token")
@@ -75,14 +49,14 @@ async def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), d
         write_audit(db, request, "Mot de passe validé — 2FA requise", "auth", user=user, niveau="info")
         return TwoFARequiredResponse(pre_auth_token=sec.create_pre_auth_token(user.username))
 
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = datetime.now(UTC)
     db.commit()
     write_audit(db, request, "Connexion réussie (sans 2FA)", "auth", user=user, niveau="ok")
     token = sec.create_token(user.username, scope="full", extra={"role": user.role})
-    return Token(access_token=token, expires_in=sec.JWT_TTL_MIN * 60)
+    return TokenResponse(access_token=token, expires_in=sec.JWT_TTL_MIN * 60)
 
 
-@router.post("/auth/2fa/verify", response_model=Token)
+@router.post("/auth/2fa/verify", response_model=TokenResponse)
 async def verify_2fa(req: TwoFAVerifyRequest, request: Request, db: Session = Depends(get_db)):
     try:
         payload = sec.decode_token(req.pre_auth_token)
@@ -105,14 +79,14 @@ async def verify_2fa(req: TwoFAVerifyRequest, request: Request, db: Session = De
     if hashed in (user.totp_recovery_codes or []):
         user.totp_recovery_codes = [c for c in user.totp_recovery_codes if c != hashed]
 
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = datetime.now(UTC)
     db.commit()
     write_audit(db, request, "Connexion réussie (2FA validée)", "auth", user=user, niveau="ok")
     token = sec.create_token(user.username, scope="full", extra={"role": user.role})
-    return Token(access_token=token, expires_in=sec.JWT_TTL_MIN * 60)
+    return TokenResponse(access_token=token, expires_in=sec.JWT_TTL_MIN * 60)
 
 
-@router.post("/auth/2fa/setup")
+@router.post("/auth/2fa/setup", response_model=TwoFASetupResponse)
 async def setup_2fa(current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Étape 1 : génère un secret + QR code. La 2FA n'est PAS encore activée."""
     secret = sec.generate_totp_secret()
@@ -122,7 +96,7 @@ async def setup_2fa(current: models.User = Depends(get_current_user), db: Sessio
     return {"secret": secret, "otpauth_uri": uri, "qr_png_base64": sec.totp_qr_png_base64(uri)}
 
 
-@router.post("/auth/2fa/enable")
+@router.post("/auth/2fa/enable", response_model=TwoFARecoveryCodesResponse)
 async def enable_2fa(req: TwoFAEnableRequest, request: Request,
                       current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Étape 2 : confirme l'enrôlement avec un code généré depuis l'app d'authentification."""
@@ -157,8 +131,8 @@ async def disable_2fa(req: TwoFADisableRequest, request: Request,
     return {"enabled": False}
 
 
-@router.post("/auth/register")
-async def register(creds: UserRegister, db: Session = Depends(get_db)):
+@router.post("/auth/register", response_model=RegisterResponse)
+async def register(creds: UserRegisterRequest, db: Session = Depends(get_db)):
     if db.query(models.User).filter(models.User.username == creds.username).first():
         raise HTTPException(400, "Utilisateur déjà existant.")
     if len(creds.password) < 8:

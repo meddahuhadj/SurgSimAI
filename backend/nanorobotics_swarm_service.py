@@ -29,6 +29,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db import get_db
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v2/nanorobotics", tags=["nanorobotics-swarm-oncology"])
 
@@ -145,7 +148,7 @@ async def trigger_in_vivo_molecular_release(
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[nanorobotics_swarm] Erreur SQL audit_logs: {e}")
+        logger.error("Erreur SQL audit_logs: %s", e)
         
     return {
         "release_event_id": release_id,

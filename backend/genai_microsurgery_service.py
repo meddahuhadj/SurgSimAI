@@ -32,6 +32,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db import get_db
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v2/microsurgery", tags=["genai-microsurgery"])
 
@@ -162,7 +165,7 @@ async def predict_intraoperative_complications(
             db.commit()
         except Exception as e:
             db.rollback()
-            print(f"[genai_microsurgery] Erreur SQL audit_logs: {e}")
+            logger.error("Erreur SQL audit_logs: %s", e)
             
     return {
         "prediction_event_id": prediction_id,
@@ -210,7 +213,7 @@ async def calibrate_microrobotic_scaling(
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[genai_microsurgery] Erreur SQL audit_logs: {e}")
+        logger.error("Erreur SQL audit_logs: %s", e)
         
     return {
         "calibration_id": calib_id,

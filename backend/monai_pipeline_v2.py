@@ -44,6 +44,9 @@ from sqlalchemy.orm import Session
 
 from db import get_db
 import security as sec
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v2/ai", tags=["monai-pipeline-v2"])
 
@@ -71,7 +74,7 @@ class Segment3DRequest(BaseModel):
 
 class CuttingSimulationRequest(BaseModel):
     twin_id: str = Field(..., description="ID du jumeau numérique 3D à découper")
-    cutting_plane_eq: List[float] = Field(..., example=[0.0, 1.0, -0.2, 45.0], description="Équation du plan de coupe (a, b, c, d) tel que ax + by + cz + d = 0")
+    cutting_plane_eq: List[float] = Field(..., description="Équation du plan de coupe (a, b, c, d) tel que ax + by + cz + d = 0", json_schema_extra={"example": [0.0, 1.0, -0.2, 45.0]})
     resected_segments: List[int] = Field(default=[6, 7], description="Numéros des segments de Couinaud ciblés par la résection")
     safety_margin_mm: float = Field(5.0, description="Marge de sécurité chirurgicale oncologique minimale garantie")
 
@@ -181,7 +184,7 @@ def _run_monai_segmentation_job(job_id: str, req: Segment3DRequest, db_url_str: 
         db.commit()
         db.close()
     except Exception as e:
-        print(f"[monai_pipeline_v2] Erreur SQL lors de l'enregistrement du jumeau : {e}")
+        logger.error("Erreur SQL lors de l'enregistrement du jumeau: %s", e)
 
     with JOBS_LOCK:
         AI_JOBS[job_id]["status"] = "COMPLETED"

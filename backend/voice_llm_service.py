@@ -41,6 +41,9 @@ from sqlalchemy.orm import Session
 
 from db import get_db
 import security as sec
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v2/voice", tags=["voice-llm-nextgen"])
 compliance_router = APIRouter(prefix="/api/v2/compliance", tags=["mdr-fda-compliance"])
@@ -56,8 +59,8 @@ class DictateReportRequest(BaseModel):
     specialty: str = Field("HBP", description="Spécialité chirurgicale (HBP, Colorectal, Thoracique...)")
     raw_voice_transcript: str = Field(
         ...,
-        example="Patient installé en décubitus dorsal. Abord par sous-costale droite élargie. Exploration confirmant une lésion tissulaire du segment 7 et 8 de 4.5 cm. Réalisation d'une hépatectomie droite réglée avec clampage pédiculaire de manœuvre de 18 minutes. Section parenchymateuse au CUSA et LigaSure. Hémostase soigneuse, colle biologique, drain de Blake en sous-hépatique. Fermeture en deux plans.",
-        description="Transcription vocale brute ou notes dictées au bloc opératoire"
+        description="Transcription vocale brute ou notes dictées au bloc opératoire",
+        json_schema_extra={"example": "Patient installé en décubitus dorsal. Abord par sous-costale droite élargie. Exploration confirmant une lésion tissulaire du segment 7 et 8 de 4.5 cm. Réalisation d'une hépatectomie droite réglée avec clampage pédiculaire de manœuvre de 18 minutes. Section parenchymateuse au CUSA et LigaSure. Hémostase soigneuse, colle biologique, drain de Blake en sous-hépatique. Fermeture en deux plans."},
     )
     request_fhir_cda: bool = Field(True, description="Générer l'export au format standard FHIR R5 ClinicalDocument XML/JSON")
 
@@ -175,7 +178,7 @@ async def generate_operative_report_ccam(
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[voice_llm_service] Erreur SQL audit_logs: {e}")
+        logger.error("Erreur SQL audit_logs: %s", e)
         
     return {
         "status": "draft_generated",
