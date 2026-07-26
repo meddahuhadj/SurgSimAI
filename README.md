@@ -7,7 +7,8 @@ connectée, analyse prédictive calculée, backend FastAPI générique.
 
 ## Contenu
 
-- `generalsurg_plan_mimo.html` — application front (fichier unique, aucun build requis)
+- `generalsurg_plan_mimo.html` — page d'entrée du front (HTML + CSS/JS externes dans `assets/`, aucun build requis)
+- `assets/` — CSS (`styles.css`) et JS (`app-part1.js`, `app-part2.js`, `app-part3.js`, `app-bootstrap.js`) du front, extraits du HTML monolithique d'origine pour rester lisibles/diffables
 - `backend/` — API FastAPI (auth JWT, patients, DICOM, volumétrie, IA)
 
 ## Ce qui a été enrichi par rapport au prototype MIMO initial
@@ -66,9 +67,21 @@ Utilisateurs de démonstration : `dr.hadj` / `changeme`, `dr.benali` / `changeme
 
 ## Utiliser le front
 
-Ouvrez `generalsurg_plan_mimo.html` dans un navigateur (double-clic suffit,
-aucun serveur requis pour la démo hors-ligne). Pour activer l'IA en direct ou
-la persistance patients, ouvrez **⚙ Paramètres** et renseignez :
+Depuis que le CSS/JS ont été extraits dans `assets/` (voir ci-dessus), un
+double-clic direct sur `generalsurg_plan_mimo.html` ne suffit plus de façon
+fiable : certains navigateurs bloquent le chargement de fichiers `.js` locaux
+via `file://` (restrictions CORS). Servez le dossier avec un petit serveur
+HTTP local, par exemple :
+
+```bash
+python -m http.server 8080
+# puis ouvrir http://localhost:8080/generalsurg_plan_mimo%20.html
+```
+
+(ou `npx serve`, ou tout autre serveur statique — aucun backend n'est requis
+pour ce mode démo hors-ligne, juste un serveur de fichiers). Pour activer
+l'IA en direct ou la persistance patients, ouvrez **⚙ Paramètres** et
+renseignez :
 - une clé API Gemini (https://aistudio.google.com/apikey), et/ou
 - une clé API Groq, et/ou
 - l'URL du backend (`http://localhost:8000` si lancé en local).
