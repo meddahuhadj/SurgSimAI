@@ -505,6 +505,15 @@ _FRONTEND_ASSETS_DIR = (Path(os.path.dirname(__file__)) / ".." / "assets").resol
 if _FRONTEND_ASSETS_DIR.is_dir():
     app.mount("/assets", StaticFiles(directory=str(_FRONTEND_ASSETS_DIR)), name="frontend-assets")
 
+# assets/app-part1.js (moteur I18N) fait `fetch("i18n/{locale}.json")` relatif à la
+# page — sans ce mount, ces requêtes 404ent quand le frontend est servi par CE
+# backend (Docker) : l'app reste utilisable (repli sur I18N_EMBEDDED, voir le
+# commentaire dans app-part1.js) mais l'édition des traductions via /i18n/*.json
+# documentée côté frontend ne fonctionnerait pas silencieusement.
+_FRONTEND_I18N_DIR = (Path(os.path.dirname(__file__)) / ".." / "i18n").resolve()
+if _FRONTEND_I18N_DIR.is_dir():
+    app.mount("/i18n", StaticFiles(directory=str(_FRONTEND_I18N_DIR)), name="frontend-i18n")
+
 
 @app.get("/")
 async def serve_frontend():
@@ -512,6 +521,40 @@ async def serve_frontend():
     if os.path.exists(path):
         return FileResponse(path)
     return {"msg": "GeneralSurg Plan MIMO API — voir /docs pour la documentation."}
+
+
+# Fichiers PWA à la racine (manifest, service worker, favicon) : on les sert
+# individuellement plutôt que de monter toute la racine en statique (qui
+# exposerait backend/, .env, etc.) — même logique que serve_frontend() ci-dessus.
+_REPO_ROOT = (Path(os.path.dirname(__file__)) / "..").resolve()
+
+
+@app.get("/manifest.webmanifest")
+async def serve_manifest():
+    path = _REPO_ROOT / "manifest.webmanifest"
+    if path.exists():
+        return FileResponse(path, media_type="application/manifest+json")
+    raise HTTPException(404, "manifest.webmanifest introuvable.")
+
+
+@app.get("/sw.js")
+async def serve_service_worker():
+    path = _REPO_ROOT / "sw.js"
+    if path.exists():
+        # Cache-Control: no-cache — le navigateur doit revérifier sw.js à chaque
+        # visite pour détecter une mise à jour rapidement (sinon un ancien service
+        # worker peut rester actif pendant des jours, cache HTTP par défaut oblige).
+        return FileResponse(path, media_type="application/javascript",
+                             headers={"Cache-Control": "no-cache"})
+    raise HTTPException(404, "sw.js introuvable.")
+
+
+@app.get("/favicon.ico")
+async def serve_favicon():
+    path = _REPO_ROOT / "favicon.ico"
+    if path.exists():
+        return FileResponse(path, media_type="image/x-icon")
+    raise HTTPException(404, "favicon.ico introuvable.")
 
 
 @app.post("/export/dicom-sr", response_model=DicomSRExportResponse)

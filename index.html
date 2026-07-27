@@ -10,6 +10,16 @@
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
     rel="stylesheet">
   <link rel="stylesheet" href="assets/styles.css">
+
+  <!-- PWA : installable + app shell disponible hors-ligne (voir sw.js) -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#102235">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GeneralSurg Plan">
 </head>
 
 <body data-mod="hbp">
@@ -2222,5 +2232,19 @@
         <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/dicom-parser@1.8.21/dist/dicomParser.min.js"></script>
         <script src="assets/app-bootstrap.js"></script>
+
+        <!-- Enregistrement du service worker (voir sw.js) : après le chargement pour
+             ne jamais retarder l'affichage initial. Ignoré silencieusement si servi
+             en file:// (double-clic) ou en http:// non-localhost : les service workers
+             exigent HTTPS ou localhost, ce n'est pas une erreur applicative. -->
+        <script>
+          if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+              navigator.serviceWorker.register('sw.js').catch((err) => {
+                console.warn('[PWA] Service worker non enregistré (normal en file:// ou http:// distant sans HTTPS):', err);
+              });
+            });
+          }
+        </script>
 </body>
 

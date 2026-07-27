@@ -1,0 +1,29 @@
+# Caddyfile — reverse proxy HTTPS automatique (Let's Encrypt) pour GeneralSurg Plan.
+#
+# {$DOMAIN} et {$ACME_EMAIL} viennent de l'environnement (voir .env / .env.example) :
+# Caddy obtient et renouvelle seul le certificat TLS pour ce domaine — aucune
+# configuration manuelle de certificat n'est nécessaire, à condition que le DNS
+# du domaine pointe déjà vers ce serveur et que les ports 80/443 soient ouverts.
+#
+# Un service worker (voir sw.js, PWA) exige HTTPS ou localhost : sans ce proxy
+# (ou un équivalent), l'app fonctionne mais n'est pas installable en production.
+
+{$DOMAIN} {
+	encode gzip
+
+	@websocket {
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+	reverse_proxy @websocket backend:8000
+
+	reverse_proxy backend:8000 {
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

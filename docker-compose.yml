@@ -1,15 +1,45 @@
-version: '3.8'
-
 # ==============================================================================
 # docker-compose.yml — GeneralSurgPlan3D NextGen Enterprise Stack
 # ==============================================================================
 # Architecture complète et résiliente pour centre de cancérologie et hôpital universitaire.
 # Inclut :
-#   1. backend : API FastAPI hautement disponible (Jumeaux 3D, MONAI, Biomécanique, Dictée CCAM)
-#   2. postgres : Base de données relationnelle sécurisée avec extension pgvector (Recherche sémantique & IA)
-#   3. orthanc : Serveur PACS DICOMweb certifié pour l'imagerie médicale hospitalière
+#   1. caddy    : reverse proxy HTTPS automatique (Let's Encrypt) — seul point
+#                 d'entrée public (ports 80/443). Requis pour que le service
+#                 worker PWA (voir sw.js) fonctionne en dehors de localhost.
+#   2. backend  : API FastAPI hautement disponible (Jumeaux 3D, MONAI, Biomécanique, Dictée CCAM)
+#   3. postgres : Base de données relationnelle sécurisée avec extension pgvector (Recherche sémantique & IA)
+#   4. orthanc  : Serveur PACS DICOMweb certifié pour l'imagerie médicale hospitalière
+#
+# Sécurité réseau : seul Caddy publie des ports sur l'hôte (80/443). backend et
+# postgres restent joignables UNIQUEMENT via le réseau Docker interne
+# hospital_secure_net — avant cette révision, postgres:5432 et backend:8000
+# étaient publiés directement sur l'hôte, donc potentiellement exposés à
+# Internet sur un VPS sans pare-feu configuré. orthanc:4242 (protocole DICOM
+# C-STORE, pas HTTP — Caddy ne peut pas le reverse-proxyer) reste publié
+# volontairement pour l'intégration PACS réelle depuis le réseau hospitalier ;
+# orthanc:8042 (interface HTTP/DICOMweb) redevient interne, déjà atteint par
+# le backend via http://orthanc:8042.
 
 services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: generalsurg_proxy
+    restart: always
+    environment:
+      - DOMAIN=${DOMAIN:?Définissez DOMAIN (ex. generalsurg.mondomaine.fr) dans .env — voir .env.example}
+      - ACME_EMAIL=${ACME_EMAIL:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+    networks:
+      - hospital_secure_net
+
   backend:
     build:
       context: .
@@ -18,12 +48,14 @@ services:
     container_name: generalsurg_app
     restart: always
     environment:
+      - APP_ENV=production
       - DATABASE_URL=postgresql://surguser:${POSTGRES_PASSWORD:?Définissez POSTGRES_PASSWORD dans un fichier .env à la racine (voir .env.example) avant de lancer ce stack}@postgres:5432/generalsurg_db
+      - JWT_SECRET=${JWT_SECRET:?Définissez JWT_SECRET (ex. `openssl rand -hex 32`) dans .env avant la mise en production}
+      - SEED_DEMO_USERS=false
+      - ALLOWED_ORIGINS=https://${DOMAIN:?}
       - ORTHANC_URL=http://orthanc:8042
       - MESH_STORAGE_DIR=/tmp/storage/meshes_v2
       - LOG_LEVEL=INFO
-    ports:
-      - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -42,8 +74,6 @@ services:
       - POSTGRES_USER=surguser
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Définissez POSTGRES_PASSWORD dans un fichier .env à la racine (voir .env.example) avant de lancer ce stack}
       - POSTGRES_DB=generalsurg_db
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./backend/migrations/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
@@ -60,8 +90,7 @@ services:
     container_name: generalsurg_pacs
     restart: always
     ports:
-      - "4242:4242"   # Port DICOM C-STORE standard hospitalier
-      - "8042:8042"   # Interface HTTP / DICOMweb WADO-RS
+      - "4242:4242"   # Port DICOM C-STORE standard hospitalier (protocole DIMSE, pas HTTP)
     environment:
       - ORTHANC_NAME=GeneralSurgPlan3D_PACS
     volumes:
@@ -75,6 +104,10 @@ volumes:
   surg_storage:
     driver: local
   orthanc_storage:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
     driver: local
 
 networks:
