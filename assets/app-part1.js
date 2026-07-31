@@ -431,6 +431,39 @@
               patient: { id: '59274-URO', nom: 'Ziani, Karim', age: 61, sexe: 'M', poids: 79, taille: 174, diag: 'Tumeur rénale droite cT1b, RENAL 8x', urg: 'orange' },
               aiChips: ['Score RENAL détaillé ?', 'Risque hémorragique au clampage ?', 'Marge chirurgicale attendue ?', 'Fonction rénale post-op prédite ?'],
               hubProcs: ['Néphrectomie partielle', 'Prostatectomie', 'Cystectomie', 'NLPC']
+            },
+            anesthesie_reanimation: {
+              id: 'anesthesie_reanimation', name: 'Anesthésie-Réanimation', short: 'Anesthésie-Réa', icon: '💉',
+              color: '#f59e0b', colorRgb: '245,158,11',
+              desc: 'Évaluation pré-anesthésique, monitorage per-opératoire et suivi en réanimation : score ASA, voies aériennes, accès vasculaires et surveillance hémodynamique.',
+              procedures: ['Anesthésie générale', 'Rachianesthésie', 'Anesthésie loco-régionale (ALR) échoguidée', 'Sédation-analgésie', 'Ventilation mécanique en réanimation'],
+              metrics: [
+                { key: 'ASA', label: 'Score ASA', val: 'II', st: 'ok' },
+                { key: 'Mallampati', label: 'Score de Mallampati', val: 'II', st: 'ok' },
+                { key: 'Jeûne', label: 'Jeûne solide', val: '8 h', st: 'ok' },
+                { key: 'SOFA', label: 'Score SOFA (si réa)', val: '2', st: 'ok' }
+              ],
+              structures: [
+                { name: 'Voies aériennes', open: true, children: ['Cavité buccale', 'Oropharynx', 'Larynx / Glotte', 'Trachée', 'Carène'] },
+                { name: 'Accès vasculaires', open: true, children: ['Voie veineuse périphérique', 'Voie veineuse centrale (VVC)', 'Cathéter artériel (KTA)', 'Voie intra-osseuse'] },
+                { name: 'Neuraxial / ALR', open: false, children: ['Espace péridural', 'Espace sous-arachnoïdien', 'Plexus brachial', 'Nerf sciatique', 'Nerf fémoral'] },
+                { name: 'Monitorage', open: false, children: ['ECG', 'PA invasive/non invasive', 'SpO2', 'Capnographie (EtCO2)', 'BIS/Entropie', 'Curarométrie (TOF)'] }
+              ],
+              implants: [
+                { name: 'Masque laryngé', ref: 'LMA-4', tags: ['VAS', 'supraglottique'], sel: true },
+                { name: "Sonde d'intubation 7.5", ref: 'ETT-7.5', tags: ['intubation'], sel: false },
+                { name: 'Cathéter péridural', ref: 'EPI-18G', tags: ['neuraxial'], sel: false }
+              ],
+              checklist: [
+                { done: true, text: '<strong>Consultation pré-anesthésique</strong> — Score ASA' },
+                { done: true, text: '<strong>Score de Mallampati</strong> — Évaluation voies aériennes' },
+                { done: false, text: '<strong>Jeûne vérifié</strong> — Solide ≥ 6h / Liquide clair ≥ 2h' },
+                { done: false, text: '<strong>Allergies vérifiées</strong> — Latex, antibiotiques, curares' },
+                { done: false, text: '<strong>Checklist HAS bloc</strong> — Sécurité du patient au bloc' }
+              ],
+              patient: { id: '70112-ANR', nom: 'Cherif, Yasmine', age: 54, sexe: 'F', poids: 65, taille: 160, diag: 'Bilan pré-anesthésique — cholécystectomie programmée', urg: 'vert' },
+              aiChips: ['Score ASA attendu ?', "Risque d'intubation difficile ?", 'Délai de jeûne respecté ?', "Contre-indications à l'ALR ?"],
+              hubProcs: ['Anesthésie générale', 'Rachianesthésie', 'ALR échoguidée', 'Sédation en réanimation']
             }
           };
 
@@ -480,6 +513,8 @@
             localEngine: null,      // instance MLCEngine (WebLLM) une fois chargée, sinon null
             localEngineModel: null, // id du modèle actuellement chargé en WebGPU
             backendToken: null,
+            preanesthesie: {},      // dossiers pré-anesthésiques en cache local, indexés par patient.id (fallback hors-backend)
+            icuFollowups: {},       // { [patient.id]: [évaluations réa/USI...] } en cache local (fallback hors-backend)
             aiBusy: false,
             mpr: {
               plane: { axial: 0, coronal: 0, sagittal: 0 },
@@ -651,7 +686,8 @@
             thyroide: { axis: { x: 1.3, y: 0.55, z: 0.5 }, lobes: 2, tubular: 0.25 },
             thoracique: { axis: { x: 0.85, y: 1.5, z: 0.9 }, lobes: 5, tubular: 0.6 },
             cardiaque: { axis: { x: 1.0, y: 1.15, z: 1.0 }, lobes: 4, tubular: 0.65 },
-            urologie: { axis: { x: 0.75, y: 1.2, z: 0.6 }, lobes: 3, tubular: 0.5 }
+            urologie: { axis: { x: 0.75, y: 1.2, z: 0.6 }, lobes: 3, tubular: 0.5 },
+            anesthesie_reanimation: { axis: { x: 1.0, y: 1.3, z: 0.8 }, lobes: 3, tubular: 0.45 }
           };
 
           // Words that hint a substructure should be rendered as a tube (vessel/nerve/duct)

@@ -37,7 +37,7 @@ CREATE TABLE patients (
     diagnostic      TEXT NOT NULL,
     chirurgien      VARCHAR(128) NOT NULL,
     specialty       VARCHAR(32) NOT NULL DEFAULT 'hbp'
-                    CHECK (specialty IN ('hbp','colorectal','gastrique','thyroide','thoracique','cardiaque','urologie')),
+                    CHECK (specialty IN ('hbp','colorectal','gastrique','thyroide','thoracique','cardiaque','urologie','anesthesie_reanimation')),
     urgence         VARCHAR(16) DEFAULT 'vert' CHECK (urgence IN ('vert','orange','rouge')),
     note            TEXT,
     status          VARCHAR(32) DEFAULT 'active',
@@ -71,6 +71,58 @@ CREATE TABLE segments (
     slice_refs      JSONB,
     metadata        JSONB DEFAULT '{}',
     created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Table: preanesthesia_assessments (dossier & évaluation pré-anesthésique — un par patient)
+CREATE TABLE preanesthesia_assessments (
+    id                          VARCHAR(36) PRIMARY KEY,
+    patient_id                  VARCHAR(32) UNIQUE REFERENCES patients(id) ON DELETE CASCADE,
+    asa_score                   INTEGER CHECK (asa_score BETWEEN 1 AND 5),
+    asa_urgence                 BOOLEAN DEFAULT FALSE,
+    mallampati_score            INTEGER CHECK (mallampati_score BETWEEN 1 AND 4),
+    antecedents                 TEXT,
+    allergies                   TEXT,
+    traitement_chronique        TEXT,
+    jeune_solide_h               REAL,
+    jeune_liquide_h              REAL,
+    intubation_difficile_prevue BOOLEAN DEFAULT FALSE,
+    intubation_difficile_notes  TEXT,
+    checklist                   JSONB DEFAULT '[]',
+    anesthesiste                VARCHAR(128),
+    conclusion                  TEXT,
+    created_at                  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at                  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Table: icu_followups (suivi réanimation/USI — plusieurs évaluations par patient dans le temps)
+CREATE TABLE icu_followups (
+    id                     VARCHAR(36) PRIMARY KEY,
+    patient_id             VARCHAR(32) REFERENCES patients(id) ON DELETE CASCADE,
+    recorded_at            TIMESTAMPTZ DEFAULT NOW(),
+    sofa_respiration       INTEGER CHECK (sofa_respiration BETWEEN 0 AND 4),
+    sofa_coagulation       INTEGER CHECK (sofa_coagulation BETWEEN 0 AND 4),
+    sofa_hepatique         INTEGER CHECK (sofa_hepatique BETWEEN 0 AND 4),
+    sofa_cardiovasculaire  INTEGER CHECK (sofa_cardiovasculaire BETWEEN 0 AND 4),
+    sofa_neurologique      INTEGER CHECK (sofa_neurologique BETWEEN 0 AND 4),
+    sofa_renal             INTEGER CHECK (sofa_renal BETWEEN 0 AND 4),
+    sofa_total             INTEGER,
+    apache2_score          INTEGER CHECK (apache2_score BETWEEN 0 AND 71),
+    glasgow_oculaire       INTEGER CHECK (glasgow_oculaire BETWEEN 1 AND 4),
+    glasgow_verbale        INTEGER CHECK (glasgow_verbale BETWEEN 1 AND 5),
+    glasgow_motrice        INTEGER CHECK (glasgow_motrice BETWEEN 1 AND 6),
+    glasgow_total          INTEGER,
+    rass_score             INTEGER CHECK (rass_score BETWEEN -5 AND 4),
+    vent_mode              VARCHAR(32),
+    vent_fio2_pct          REAL,
+    vent_peep_cmh2o        REAL,
+    vent_vt_ml             REAL,
+    vent_fr_rpm            REAL,
+    bilan_entrees_ml       REAL,
+    bilan_sorties_ml       REAL,
+    bilan_net_ml           REAL,
+    notes                  TEXT,
+    auteur                 VARCHAR(128),
+    created_at             TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Table: dicom_series

@@ -42,7 +42,7 @@ ACTION_COMMAND_INSTRUCTIONS = (
     "mode_lecture_seule_on, mode_lecture_seule_off, open_analyse, open_ia, open_plan, open_implants, "
     "open_patients, open_settings, close_modal, recalc_analysis, export_plan, "
     "switch_hbp, switch_colorectal, switch_gastrique, switch_thyroide, switch_thoracique, "
-    "switch_cardiaque, switch_urologie."
+    "switch_cardiaque, switch_urologie, switch_anesthesie_reanimation."
 )
 
 

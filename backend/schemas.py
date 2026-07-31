@@ -160,6 +160,109 @@ class SegmentOut(SegmentCreate):
 
 
 # ---------------------------------------------------------------------------
+# Dossier & évaluation pré-anesthésique
+# ---------------------------------------------------------------------------
+
+class ChecklistItem(BaseModel):
+    done: bool = False
+    text: str = Field(..., min_length=1, max_length=256)
+
+
+class PreanesthesiaAssessmentIn(BaseModel):
+    asa_score: Optional[int] = Field(None, ge=1, le=5)
+    asa_urgence: Optional[bool] = None
+    mallampati_score: Optional[int] = Field(None, ge=1, le=4)
+    antecedents: Optional[str] = Field(None, max_length=4000)
+    allergies: Optional[str] = Field(None, max_length=2000)
+    traitement_chronique: Optional[str] = Field(None, max_length=2000)
+    jeune_solide_h: Optional[float] = Field(None, ge=0, le=200)
+    jeune_liquide_h: Optional[float] = Field(None, ge=0, le=200)
+    intubation_difficile_prevue: Optional[bool] = None
+    intubation_difficile_notes: Optional[str] = Field(None, max_length=2000)
+    checklist: Optional[List[ChecklistItem]] = None
+    anesthesiste: Optional[str] = Field(None, max_length=128)
+    conclusion: Optional[str] = Field(None, max_length=4000)
+
+
+class PreanesthesiaAssessmentOut(BaseModel):
+    id: str
+    patient_id: str
+    asa_score: Optional[int] = None
+    asa_urgence: bool = False
+    mallampati_score: Optional[int] = None
+    antecedents: Optional[str] = None
+    allergies: Optional[str] = None
+    traitement_chronique: Optional[str] = None
+    jeune_solide_h: Optional[float] = None
+    jeune_liquide_h: Optional[float] = None
+    intubation_difficile_prevue: bool = False
+    intubation_difficile_notes: Optional[str] = None
+    checklist: List[ChecklistItem] = Field(default_factory=list)
+    anesthesiste: Optional[str] = None
+    conclusion: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Suivi réanimation / USI (plusieurs évaluations dans le temps par patient)
+# ---------------------------------------------------------------------------
+
+class IcuFollowUpIn(BaseModel):
+    recorded_at: Optional[datetime] = None
+    sofa_respiration: Optional[int] = Field(None, ge=0, le=4)
+    sofa_coagulation: Optional[int] = Field(None, ge=0, le=4)
+    sofa_hepatique: Optional[int] = Field(None, ge=0, le=4)
+    sofa_cardiovasculaire: Optional[int] = Field(None, ge=0, le=4)
+    sofa_neurologique: Optional[int] = Field(None, ge=0, le=4)
+    sofa_renal: Optional[int] = Field(None, ge=0, le=4)
+    apache2_score: Optional[int] = Field(None, ge=0, le=71)
+    glasgow_oculaire: Optional[int] = Field(None, ge=1, le=4)
+    glasgow_verbale: Optional[int] = Field(None, ge=1, le=5)
+    glasgow_motrice: Optional[int] = Field(None, ge=1, le=6)
+    rass_score: Optional[int] = Field(None, ge=-5, le=4)
+    vent_mode: Optional[str] = Field(None, max_length=32)
+    vent_fio2_pct: Optional[float] = Field(None, ge=21, le=100)
+    vent_peep_cmh2o: Optional[float] = Field(None, ge=0, le=30)
+    vent_vt_ml: Optional[float] = Field(None, ge=0, le=1000)
+    vent_fr_rpm: Optional[float] = Field(None, ge=0, le=60)
+    bilan_entrees_ml: Optional[float] = None
+    bilan_sorties_ml: Optional[float] = None
+    notes: Optional[str] = Field(None, max_length=4000)
+    auteur: Optional[str] = Field(None, max_length=128)
+
+
+class IcuFollowUpOut(BaseModel):
+    id: str
+    patient_id: str
+    recorded_at: datetime
+    sofa_respiration: Optional[int] = None
+    sofa_coagulation: Optional[int] = None
+    sofa_hepatique: Optional[int] = None
+    sofa_cardiovasculaire: Optional[int] = None
+    sofa_neurologique: Optional[int] = None
+    sofa_renal: Optional[int] = None
+    sofa_total: Optional[int] = None
+    apache2_score: Optional[int] = None
+    glasgow_oculaire: Optional[int] = None
+    glasgow_verbale: Optional[int] = None
+    glasgow_motrice: Optional[int] = None
+    glasgow_total: Optional[int] = None
+    rass_score: Optional[int] = None
+    vent_mode: Optional[str] = None
+    vent_fio2_pct: Optional[float] = None
+    vent_peep_cmh2o: Optional[float] = None
+    vent_vt_ml: Optional[float] = None
+    vent_fr_rpm: Optional[float] = None
+    bilan_entrees_ml: Optional[float] = None
+    bilan_sorties_ml: Optional[float] = None
+    bilan_net_ml: Optional[float] = None
+    notes: Optional[str] = None
+    auteur: Optional[str] = None
+    created_at: datetime
+
+
+# ---------------------------------------------------------------------------
 # DICOM
 # ---------------------------------------------------------------------------
 
