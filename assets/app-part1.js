@@ -153,6 +153,10 @@
             }
 
             function currentLocale() { return locale; }
+            function currentIntl() {
+              const dict = dictCache[locale] || I18N_EMBEDDED[locale];
+              return (dict && dict.meta && dict.meta.intl) || 'en-US';
+            }
             function reportMissing() { return Array.from(missing); }
 
             function flattenObj(obj, prefix) {
@@ -166,7 +170,7 @@
             }
 
             return {
-              SUPPORTED, t, setLocale, currentLocale, detectBrowserLocale, applyTranslations,
+              SUPPORTED, t, setLocale, currentLocale, currentIntl, detectBrowserLocale, applyTranslations,
               languageName, formatDate, formatNumber, reportMissing, getOverrides,
               setOverride(loc, key, value) {
                 const ov = getOverrides();

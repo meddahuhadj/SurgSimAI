@@ -770,6 +770,7 @@
               executeVoiceAction(reply);
               const clean = reply.replace(/\[ACTION:[a-z_]+\]/g, '').trim();
               setChatMsg(bubbleId, clean || reply);
+              speakAIReply(clean || reply);
             }).catch(err => setChatMsg(bubbleId, '⚠️ ' + err.message));
           }
 
@@ -818,6 +819,7 @@
               executeVoiceAction(full);
               const clean = full.replace(/\[ACTION:[a-z_]+\]/g, '').trim();
               setGBMsg(bubbleId, escapeHtml(clean || full));
+              speakAIReply(clean || full);
               state.live.history.push({ role: 'model', text: clean || full });
               if (state.live.history.length > 16) state.live.history.splice(0, state.live.history.length - 16);
             } catch (err) {
@@ -1345,6 +1347,29 @@
 
           function glModel() {
             return document.getElementById('gemini-live-model')?.value || 'gemini-3.1-flash-live-preview';
+          }
+
+          // Synthèse vocale des réponses IA (Web Speech API, 100% navigateur, zéro
+          // dépendance/coût réseau). La langue suit TOUJOURS I18N.currentIntl(), donc la
+          // langue d'interface active choisie par l'utilisateur — jamais une langue codée
+          // en dur — cohérent avec ai.respondInLanguage qui fait déjà suivre le texte de
+          // la réponse. Ne concerne que le chat texte (panneau IA Chat, barre du bas hors
+          // session Gemini Live) : la session Gemini Live temps réel a déjà sa propre voix
+          // audio nativement (voir gl.audioQueue plus bas), il ne faut pas la doubler ici.
+          function speakAIReply(text) {
+            if (!('speechSynthesis' in window) || !text) return;
+            const clean = String(text).replace(/\[ACTION:[a-z_]+\]/g, '').replace(/[*_`#>]/g, '').trim();
+            if (!clean) return;
+            try {
+              window.speechSynthesis.cancel(); // une seule réponse parlée à la fois
+              const utter = new SpeechSynthesisUtterance(clean);
+              utter.lang = I18N.currentIntl();
+              const voices = window.speechSynthesis.getVoices();
+              const voice = voices.find(v => v.lang === utter.lang) ||
+                voices.find(v => v.lang.startsWith(utter.lang.split('-')[0]));
+              if (voice) utter.voice = voice;
+              window.speechSynthesis.speak(utter);
+            } catch (e) { /* best-effort : la voix ne doit jamais bloquer le chat */ }
           }
 
           // Commandes vocales exécutables dans l'app (le prompt système demande à Gemini
