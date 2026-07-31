@@ -377,6 +377,38 @@
       animation: pulse 2s infinite
     }
 
+    /* ── Tiroirs mobiles (sidebar / panneau droit) ──────────────────────────
+   Boutons présents dans le DOM en permanence mais invisibles au-dessus du
+   point de rupture mobile (voir le bloc "Responsive — app shell mobile"
+   plus bas, qui les affiche et transforme .sidebar/.panel-right en tiroirs). */
+    .hamburger-btn,
+    .panel-toggle-btn {
+      display: none
+    }
+
+    .hamburger-btn {
+      background: none;
+      border: none;
+      color: var(--text2);
+      font-size: 18px;
+      padding: 0 12px;
+      cursor: pointer;
+      flex-shrink: 0
+    }
+
+    .mobile-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .55);
+      z-index: 390
+    }
+
+    body.sidebar-open .mobile-backdrop,
+    body.panel-open .mobile-backdrop {
+      display: block
+    }
+
     /* ── Main Layout ── */
     .main {
       display: flex;
@@ -2360,9 +2392,141 @@
         flex-wrap: wrap;
         justify-content: center
       }
+    }
+
+    /* ── Responsive — app shell mobile (tablette portrait et téléphone) ──────
+   En dessous de 900px, la sidebar et le panneau droit (296/256px fixes)
+   ne peuvent plus coexister avec le viewport 3D/MPR sans le réduire à
+   rien : ils deviennent des tiroirs superposés (position fixed, glissés
+   hors-écran par défaut, ouverts via body.sidebar-open/.panel-open — voir
+   toggleMobileSidebar()/toggleMobilePanel() dans index.html), au lieu
+   d'être simplement masqués (ancien comportement : le panneau droit,
+   avec les onglets Plan/Staging/Implants/IA Chat/Analyse, devenait
+   totalement inaccessible en dessous de 1000px). */
+    @media(max-width:900px) {
+
+      .hamburger-btn,
+      .panel-toggle-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center
+      }
+
+      .brand {
+        width: auto;
+        padding: 0 10px;
+        border-right: none
+      }
+
+      .brand-text {
+        display: none
+      }
+
+      .top-actions {
+        overflow-x: auto;
+        max-width: 38vw;
+        scrollbar-width: thin
+      }
+
+      .top-actions .lang-selector-menu {
+        right: 0;
+        left: auto
+      }
+
+      .workflow-stepper {
+        overflow-x: auto;
+        scrollbar-width: thin
+      }
+
+      .workflow-stepper::-webkit-scrollbar,
+      .top-actions::-webkit-scrollbar {
+        height: 4px
+      }
+
+      /* .main garde overflow:hidden (desktop) : les tiroirs sont en position
+     fixed, sortis du flux, donc .center (flex:1) occupe naturellement
+     toute la largeur restante sans changement supplémentaire ici. */
+      .sidebar {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: min(var(--sidebar-w), 84vw);
+        z-index: 400;
+        transform: translateX(-100%);
+        transition: transform .25s ease;
+        box-shadow: 4px 0 24px rgba(0, 0, 0, .4)
+      }
+
+      body.sidebar-open .sidebar {
+        transform: translateX(0)
+      }
 
       .panel-right {
-        display: none !important
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        right: 0;
+        width: min(var(--panel-w), 88vw);
+        z-index: 400;
+        transform: translateX(100%);
+        transition: transform .25s ease;
+        box-shadow: -4px 0 24px rgba(0, 0, 0, .4)
+      }
+
+      body.panel-open .panel-right {
+        transform: translateX(0)
+      }
+
+      .mpr-strip {
+        height: 96px
+      }
+
+      /* .modal a un min-width:420px fixe (voir plus haut), et 26 modales
+     (Patients, Paramètres, éditeur i18n, WebGPU cut...) le surchargent en
+     plus avec un style="min-width:560px..720px" INLINE — 560-720px, plus
+     large que l'écran lui-même sur un téléphone (ex. 390px). L'.modal-overlay
+     qui centre le modal n'a pas overflow:hidden, donc ça débordait sans
+     aucune marge ni scroll. !important nécessaire pour l'emporter sur les
+     styles inline (spécificité plus forte qu'une règle de classe, même dans
+     un @media). Sans effet au-delà de ~740px, où min(680px, 92vw) redonne
+     680px comme le max-width d'origine. */
+      .modal {
+        min-width: 0 !important;
+        width: min(680px, 92vw) !important;
+        max-width: 92vw !important;
+        max-height: 90vh
+      }
+
+      .modal-overlay {
+        padding: 16px
+      }
+
+      /* RTL (arabe) : la sidebar glisse depuis la droite et le panneau depuis
+     la gauche — cohérent avec le reste de l'interface qui s'inverse déjà
+     en dir=rtl (voir plus bas dans ce fichier). Imbriqué dans CE @media :
+     au-dessus du point de rupture, sidebar/panneau restent des colonnes
+     flex normales et ne doivent subir aucune transform. */
+      html[dir="rtl"] .sidebar {
+        left: auto;
+        right: 0;
+        transform: translateX(100%);
+        box-shadow: -4px 0 24px rgba(0, 0, 0, .4)
+      }
+
+      html[dir="rtl"] body.sidebar-open .sidebar {
+        transform: translateX(0)
+      }
+
+      html[dir="rtl"] .panel-right {
+        right: auto;
+        left: 0;
+        transform: translateX(-100%);
+        box-shadow: 4px 0 24px rgba(0, 0, 0, .4)
+      }
+
+      html[dir="rtl"] body.panel-open .panel-right {
+        transform: translateX(0)
       }
     }
 
@@ -2686,4 +2850,215 @@
     html[dir="rtl"] canvas {
       direction: ltr;
       text-align: left
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       PWA — Bannière d'installation + Toast de mise à jour SW
+       ══════════════════════════════════════════════════════════════ */
+
+    /* ── Bannière d'installation ──────────────────────────────────── */
+    #pwa-install-banner {
+      position: fixed;
+      bottom: 1rem;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem 0.75rem 1rem;
+      background: rgba(16, 34, 53, 0.95);
+      border: 1px solid rgba(79, 195, 247, 0.3);
+      border-radius: 14px;
+      backdrop-filter: blur(20px);
+      box-shadow:
+        0 0 0 1px rgba(79, 195, 247, 0.08),
+        0 16px 48px rgba(0, 0, 0, 0.55),
+        0 0 40px rgba(79, 195, 247, 0.08);
+      white-space: nowrap;
+      transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+                  opacity 0.4s ease;
+      opacity: 0;
+      pointer-events: none;
+      max-width: calc(100vw - 2rem);
+    }
+
+    #pwa-install-banner.pwa-banner-visible {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .pwa-banner-icon {
+      font-size: 1.4rem;
+      flex-shrink: 0;
+    }
+
+    .pwa-banner-text {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .pwa-banner-text strong {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--text1);
+      letter-spacing: 0.01em;
+    }
+
+    .pwa-banner-text span {
+      display: block;
+      font-size: 0.72rem;
+      color: var(--text2);
+      margin-top: 1px;
+    }
+
+    .pwa-banner-btn-install {
+      flex-shrink: 0;
+      background: linear-gradient(135deg, var(--accent), #818cf8);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 0.45rem 0.9rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      letter-spacing: 0.02em;
+    }
+
+    .pwa-banner-btn-install:hover {
+      filter: brightness(1.15);
+      transform: translateY(-1px);
+    }
+
+    .pwa-banner-btn-dismiss {
+      flex-shrink: 0;
+      background: transparent;
+      color: var(--text3);
+      border: none;
+      padding: 0.35rem;
+      cursor: pointer;
+      border-radius: 6px;
+      font-size: 1rem;
+      line-height: 1;
+      transition: color 0.15s ease, background 0.15s ease;
+    }
+
+    .pwa-banner-btn-dismiss:hover {
+      color: var(--text1);
+      background: rgba(255,255,255,0.07);
+    }
+
+    /* ── Toast de mise à jour SW ──────────────────────────────────── */
+    #pwa-update-toast {
+      position: fixed;
+      top: calc(var(--cert-h, 28px) + var(--top-h, 44px) + 0.75rem);
+      right: 1rem;
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.65rem 0.85rem;
+      background: rgba(16, 34, 53, 0.97);
+      border: 1px solid rgba(34, 197, 94, 0.35);
+      border-radius: 12px;
+      backdrop-filter: blur(20px);
+      box-shadow:
+        0 0 0 1px rgba(34, 197, 94, 0.07),
+        0 8px 32px rgba(0, 0, 0, 0.5),
+        0 0 24px rgba(34, 197, 94, 0.06);
+      transform: translateX(120%);
+      opacity: 0;
+      transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+                  opacity 0.35s ease;
+      pointer-events: none;
+      font-size: 0.78rem;
+    }
+
+    #pwa-update-toast.pwa-toast-visible {
+      transform: translateX(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .pwa-toast-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      flex-shrink: 0;
+      animation: pwa-dot-pulse 1.8s ease-in-out infinite;
+    }
+
+    @keyframes pwa-dot-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.5; transform: scale(0.75); }
+    }
+
+    .pwa-toast-msg {
+      color: var(--text1);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .pwa-toast-btn-reload {
+      background: rgba(34, 197, 94, 0.18);
+      color: var(--green);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      border-radius: 6px;
+      padding: 0.28rem 0.65rem;
+      font-size: 0.72rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .pwa-toast-btn-reload:hover {
+      background: rgba(34, 197, 94, 0.28);
+    }
+
+    .pwa-toast-btn-close {
+      background: transparent;
+      color: var(--text3);
+      border: none;
+      padding: 0.2rem;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      line-height: 1;
+      transition: color 0.15s ease;
+    }
+
+    .pwa-toast-btn-close:hover {
+      color: var(--text1);
+    }
+
+    /* Responsive mobile */
+    @media (max-width: 480px) {
+      #pwa-install-banner {
+        flex-wrap: wrap;
+        white-space: normal;
+        bottom: 0.5rem;
+        border-radius: 12px 12px 0 0;
+        left: 0;
+        right: 0;
+        transform: translateY(100%);
+        width: 100%;
+        max-width: 100%;
+      }
+      #pwa-install-banner.pwa-banner-visible {
+        transform: translateY(0);
+      }
+      #pwa-update-toast {
+        right: 0.5rem;
+        left: 0.5rem;
+        transform: translateY(-100%);
+        top: calc(var(--cert-h, 28px) + var(--top-h, 44px) + 0.5rem);
+      }
+      #pwa-update-toast.pwa-toast-visible {
+        transform: translateY(0);
+      }
     }

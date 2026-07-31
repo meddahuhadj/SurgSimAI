@@ -1,0 +1,97 @@
+# =============================================================================
+# .github/workflows/deploy.yml — CI/CD GitHub Actions → Render.com
+# =============================================================================
+# Pipeline en 2 étapes pour GeneralSurg Plan :
+#   1. tests  — lance la suite pytest (réutilise tests.yml pour la logique)
+#   2. deploy — si les tests passent ET on est sur la branche main,
+#               déclenche le redéploiement Render via Deploy Hook.
+#
+# Configuration requise (une seule fois) :
+#   • Sur Render.com → votre service → Settings → Deploy Hook → copier l'URL
+#   • Sur GitHub → repo → Settings → Secrets and variables → Actions :
+#       Ajouter le secret RENDER_DEPLOY_HOOK_URL avec l'URL copiée.
+#
+# Résultat : chaque `git push main` (ou merge de PR) qui passe les tests
+# déclenche automatiquement un redéploiement Render (~2-3 min).
+# =============================================================================
+
+name: CI → Deploy
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  # ── Job 1 : Tests ───────────────────────────────────────────────────────────
+  tests:
+    name: Tests (pytest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Installer les dépendances backend
+        run: |
+          pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+
+      - name: Lancer la suite de tests
+        env:
+          APP_ENV: development
+          SEED_DEMO_USERS: "true"
+          JWT_SECRET: ci-test-secret-not-for-production-use
+          RESEARCH_MODE: "false"
+        run: |
+          python -m pytest tests/ -v --tb=short
+
+  # ── Job 2 : Déploiement Render ──────────────────────────────────────────────
+  deploy:
+    name: Deploy → Render.com
+    needs: tests                    # N'exécute que si les tests passent
+    runs-on: ubuntu-latest
+    # Déploie uniquement sur push direct vers main/master (pas sur les PR)
+    if: github.event_name == 'push'
+
+    environment:
+      name: production
+      url: https://generalsurg-plan-demo.onrender.com
+
+    steps:
+      - name: Déclencher le redéploiement Render
+        # Appelle le Deploy Hook Render (URL secrète → aucun token exposé)
+        run: |
+          echo "🚀 Déclenchement du redéploiement Render..."
+          RESPONSE=$(curl --silent --write-out "\nHTTP_STATUS:%{http_code}" \
+            --max-time 30 \
+            -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
+
+          HTTP_STATUS=$(echo "$RESPONSE" | grep -oP 'HTTP_STATUS:\K[0-9]+')
+          BODY=$(echo "$RESPONSE" | grep -v 'HTTP_STATUS:')
+
+          echo "Réponse Render: $BODY"
+          echo "Statut HTTP: $HTTP_STATUS"
+
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "❌ Échec du déclenchement Render (HTTP $HTTP_STATUS)"
+            exit 1
+          fi
+
+          echo "✅ Redéploiement Render déclenché avec succès."
+          echo ""
+          echo "📋 Suivi : https://dashboard.render.com"
+          echo "🌐 URL   : https://generalsurg-plan-demo.onrender.com"
+          echo ""
+          echo "⏱ Le déploiement prend généralement 2-5 minutes."
+          echo "   Sur le plan gratuit, le service peut mettre ~30s à"
+          echo "   répondre après une période d'inactivité (cold start)."

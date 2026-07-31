@@ -7,19 +7,59 @@
 #
 # Un service worker (voir sw.js, PWA) exige HTTPS ou localhost : sans ce proxy
 # (ou un équivalent), l'app fonctionne mais n'est pas installable en production.
+#
+# Headers de sécurité ajoutés (v2) :
+#   - Strict-Transport-Security (HSTS) : force HTTPS pour 1 an
+#   - Service-Worker-Allowed : autorise le SW à contrôler le scope /
+#   - X-Content-Type-Options : interdit le MIME-sniffing (prévention XSS)
+#   - X-Frame-Options : empêche le clickjacking (DENY)
+#   - Referrer-Policy : limite la fuite d'URL de référence
+#   - Permissions-Policy : désactive les API sensibles non utilisées
+
+{
+	email {$ACME_EMAIL:acme@example.com}
+}
 
 {$DOMAIN} {
 	encode gzip
 
+	# ── WebSocket (pour les connexions temps-réel si ajoutées) ──────────────
 	@websocket {
 		header Connection *Upgrade*
 		header Upgrade websocket
 	}
 	reverse_proxy @websocket backend:8000
 
+	# ── Proxy principal → backend FastAPI ────────────────────────────────────
 	reverse_proxy backend:8000 {
 		header_up X-Forwarded-For {remote_host}
 		header_up X-Forwarded-Proto {scheme}
+	}
+
+	# ── Headers de sécurité ──────────────────────────────────────────────────
+	header {
+		# HSTS : force HTTPS pour 1 an, inclut les sous-domaines
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+		# Autorise le service worker à contrôler toute la portée /
+		# (nécessaire si sw.js est servi depuis /sw.js et doit couvrir /)
+		Service-Worker-Allowed "/"
+
+		# Empêche le navigateur de "deviner" le Content-Type
+		X-Content-Type-Options "nosniff"
+
+		# Interdit l'intégration de l'app dans une iframe (clickjacking)
+		X-Frame-Options "DENY"
+
+		# Limite la fuite d'URL dans le header Referer
+		Referrer-Policy "strict-origin-when-cross-origin"
+
+		# Désactive les API matérielles sensibles non utilisées dans l'app
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+
+		# Supprime la bannière "Powered by" (X-Powered-By est vide pour FastAPI,
+		# mais positionné ici par précaution — protection d'information serveur)
+		-Server
 	}
 
 	log {

@@ -65,6 +65,8 @@
 
     <!-- Topbar -->
     <div class="topbar">
+      <button class="hamburger-btn" onclick="toggleMobileSidebar()" title="Panneau patient / segments"
+        aria-label="Ouvrir le panneau patient">☰</button>
       <div class="brand">
         <div class="brand-icon">🏥</div>
         <div class="brand-text">
@@ -149,6 +151,8 @@
             <button class="lang-option" onclick="uiSetLocale('nl')" data-lang="nl">🇳🇱 <span>Nederlands</span></button>
           </div>
         </div>
+        <button class="btn-icon panel-toggle-btn" onclick="toggleMobilePanel()" title="Panneau Plan / Staging / IA"
+          aria-label="Ouvrir le panneau latéral">▤</button>
         <div class="status-dot"></div>
       </div>
     </div>
@@ -162,6 +166,11 @@
 
     <!-- Quickbar -->
     <div class="quickbar" id="quickbar"></div>
+
+    <!-- Rideau d'arrière-plan mobile : visible uniquement quand la sidebar ou le
+         panneau droit est ouvert en tiroir (petits écrans, voir toggleMobileSidebar/
+         toggleMobilePanel plus bas et le @media dans assets/styles.css). -->
+    <div class="mobile-backdrop" id="mobile-backdrop" onclick="closeMobileDrawers()"></div>
 
     <!-- Main Content -->
     <div class="main">
@@ -2233,18 +2242,239 @@
         <script src="https://cdn.jsdelivr.net/npm/dicom-parser@1.8.21/dist/dicomParser.min.js"></script>
         <script src="assets/app-bootstrap.js"></script>
 
-        <!-- Enregistrement du service worker (voir sw.js) : après le chargement pour
-             ne jamais retarder l'affichage initial. Ignoré silencieusement si servi
-             en file:// (double-clic) ou en http:// non-localhost : les service workers
-             exigent HTTPS ou localhost, ce n'est pas une erreur applicative. -->
+        <!-- Tiroirs mobiles (sidebar / panneau droit) : sur petit écran (voir le
+             @media dans assets/styles.css), la sidebar et .panel-right passent en
+             position fixe hors-écran par défaut ; ces trois fonctions basculent une
+             classe sur <body> pour les faire glisser à l'écran, avec un rideau
+             d'arrière-plan cliquable pour refermer. N'a aucun effet visuel au-dessus
+             du point de rupture (desktop), où sidebar/panneau restent dans le flux
+             normal comme avant. -->
         <script>
-          if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-              navigator.serviceWorker.register('sw.js').catch((err) => {
-                console.warn('[PWA] Service worker non enregistré (normal en file:// ou http:// distant sans HTTPS):', err);
-              });
-            });
+          function toggleMobileSidebar() {
+            const opening = !document.body.classList.contains('sidebar-open');
+            document.body.classList.toggle('sidebar-open', opening);
+            if (opening) document.body.classList.remove('panel-open');
+          }
+          function toggleMobilePanel() {
+            const opening = !document.body.classList.contains('panel-open');
+            document.body.classList.toggle('panel-open', opening);
+            if (opening) document.body.classList.remove('sidebar-open');
+          }
+          function closeMobileDrawers() {
+            document.body.classList.remove('sidebar-open', 'panel-open');
           }
         </script>
+
+        <!-- Bip élégant au clic sur un bouton : synthétisé via Web Audio API (aucun
+             fichier audio à charger), un seul AudioContext partagé créé au premier
+             clic (les navigateurs bloquent l'audio avant un geste utilisateur).
+             Écouteur global en phase de capture pour couvrir tous les boutons
+             existants et futurs sans instrumenter chacun individuellement. -->
+        <script>
+          let _clickBeepCtx = null;
+          function playClickBeep() {
+            try {
+              if (!_clickBeepCtx) _clickBeepCtx = new (window.AudioContext || window.webkitAudioContext)();
+              if (_clickBeepCtx.state === 'suspended') _clickBeepCtx.resume();
+              const ctx = _clickBeepCtx;
+              const now = ctx.currentTime;
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(880, now);
+              osc.frequency.exponentialRampToValueAtTime(1320, now + 0.05);
+              gain.gain.setValueAtTime(0.0001, now);
+              gain.gain.exponentialRampToValueAtTime(0.12, now + 0.008);
+              gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+              osc.connect(gain).connect(ctx.destination);
+              osc.start(now);
+              osc.stop(now + 0.1);
+            } catch (e) { /* best-effort : un bip raté ne doit jamais bloquer un clic */ }
+          }
+          document.addEventListener('click', (e) => {
+            if (e.target.closest('button, [role="button"], .btn, .lang-option')) playClickBeep();
+          }, true);
+        </script>
+
+        <!-- ═══════════════════════════════════════════════════════
+             PWA — Bannière d'installation
+             ═══════════════════════════════════════════════════════ -->
+        <div id="pwa-install-banner" role="complementary" aria-label="Installer l'application">
+          <span class="pwa-banner-icon">🏥</span>
+          <div class="pwa-banner-text">
+            <strong>Installer GeneralSurg Plan</strong>
+            <span>Accès rapide, fonctionne hors ligne</span>
+          </div>
+          <button class="pwa-banner-btn-install" id="pwa-btn-install" aria-label="Installer l'application">
+            Installer
+          </button>
+          <button class="pwa-banner-btn-dismiss" id="pwa-btn-dismiss" aria-label="Fermer la bannière">✕</button>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════
+             PWA — Toast de mise à jour Service Worker
+             ═══════════════════════════════════════════════════════ -->
+        <div id="pwa-update-toast" role="alert" aria-live="polite" aria-label="Mise à jour disponible">
+          <span class="pwa-toast-dot"></span>
+          <span class="pwa-toast-msg">Mise à jour disponible</span>
+          <button class="pwa-toast-btn-reload" id="pwa-btn-reload" aria-label="Actualiser pour obtenir la mise à jour">
+            Actualiser
+          </button>
+          <button class="pwa-toast-btn-close" id="pwa-toast-close" aria-label="Ignorer la mise à jour">✕</button>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════
+             PWA — Script principal (install prompt + SW)
+             ═══════════════════════════════════════════════════════ -->
+        <script>
+          (function () {
+            'use strict';
+
+            // ── Bannière d'installation ─────────────────────────────
+            // Capture l'événement beforeinstallprompt pour l'afficher
+            // au moment le plus opportun (pas immédiatement au chargement).
+            let _deferredPrompt = null;
+            const DISMISS_KEY = 'pwa_install_dismissed';
+
+            window.addEventListener('beforeinstallprompt', (e) => {
+              e.preventDefault(); // Empêche le mini-infobar natif Chrome
+              _deferredPrompt = e;
+              // N'affiche pas la bannière si l'utilisateur l'a déjà rejetée
+              if (!sessionStorage.getItem(DISMISS_KEY)) {
+                // Délai de 4s : laisser l'app se charger avant d'interpeller l'utilisateur
+                setTimeout(() => showInstallBanner(), 4000);
+              }
+            });
+
+            function showInstallBanner() {
+              const banner = document.getElementById('pwa-install-banner');
+              if (banner) banner.classList.add('pwa-banner-visible');
+            }
+
+            function hideInstallBanner() {
+              const banner = document.getElementById('pwa-install-banner');
+              if (banner) banner.classList.remove('pwa-banner-visible');
+            }
+
+            // Bouton Installer
+            const btnInstall = document.getElementById('pwa-btn-install');
+            if (btnInstall) {
+              btnInstall.addEventListener('click', async () => {
+                if (!_deferredPrompt) return;
+                hideInstallBanner();
+                _deferredPrompt.prompt();
+                const { outcome } = await _deferredPrompt.userChoice;
+                console.info('[PWA] install prompt outcome:', outcome);
+                _deferredPrompt = null;
+              });
+            }
+
+            // Bouton Fermer
+            const btnDismiss = document.getElementById('pwa-btn-dismiss');
+            if (btnDismiss) {
+              btnDismiss.addEventListener('click', () => {
+                hideInstallBanner();
+                sessionStorage.setItem(DISMISS_KEY, '1');
+              });
+            }
+
+            // Une fois installée, masquer définitivement la bannière
+            window.addEventListener('appinstalled', () => {
+              hideInstallBanner();
+              _deferredPrompt = null;
+              console.info('[PWA] Application installée avec succès.');
+            });
+
+            // ── Toast de mise à jour SW ──────────────────────────────
+            // Le service worker envoie 'SW_UPDATED' via postMessage
+            // quand un nouveau SW prend le contrôle des clients.
+            let _waitingWorker = null;
+
+            function showUpdateToast() {
+              const toast = document.getElementById('pwa-update-toast');
+              if (toast) toast.classList.add('pwa-toast-visible');
+            }
+
+            function hideUpdateToast() {
+              const toast = document.getElementById('pwa-update-toast');
+              if (toast) toast.classList.remove('pwa-toast-visible');
+            }
+
+            // Bouton Actualiser
+            const btnReload = document.getElementById('pwa-btn-reload');
+            if (btnReload) {
+              btnReload.addEventListener('click', () => {
+                hideUpdateToast();
+                if (_waitingWorker) {
+                  // Demande au SW en attente de sauter l'attente et de s'activer
+                  _waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+                } else {
+                  window.location.reload();
+                }
+              });
+            }
+
+            // Bouton Ignorer
+            const btnToastClose = document.getElementById('pwa-toast-close');
+            if (btnToastClose) {
+              btnToastClose.addEventListener('click', hideUpdateToast);
+            }
+
+            // ── Enregistrement du Service Worker ────────────────────
+            // Placé après le chargement de la page pour ne jamais retarder
+            // l'affichage initial. Le SW gère le cache du shell applicatif
+            // (index.html, CSS, JS, icônes, traductions) — jamais les
+            // données patients ou les jetons d'authentification.
+            if ('serviceWorker' in navigator) {
+              window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                  .then((registration) => {
+                    console.info('[PWA] Service worker enregistré:', registration.scope);
+
+                    // Détection d'un SW en attente d'activation (mise à jour)
+                    if (registration.waiting) {
+                      _waitingWorker = registration.waiting;
+                      showUpdateToast();
+                    }
+
+                    registration.addEventListener('updatefound', () => {
+                      const newWorker = registration.installing;
+                      if (!newWorker) return;
+                      newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                          // Un nouveau SW est installé et en attente — proposer la MAJ
+                          _waitingWorker = newWorker;
+                          showUpdateToast();
+                        }
+                      });
+                    });
+
+                    // Rechargement automatique quand le nouveau SW prend le contrôle
+                    // (uniquement si l'utilisateur a cliqué "Actualiser")
+                    let isRefreshing = false;
+                    navigator.serviceWorker.addEventListener('controllerchange', () => {
+                      if (!isRefreshing) {
+                        isRefreshing = true;
+                        window.location.reload();
+                      }
+                    });
+                  })
+                  .catch((err) => {
+                    // Normal si servi en file:// ou en http:// non-localhost
+                    console.warn('[PWA] Service worker non enregistré:', err);
+                  });
+
+                // Message du SW : nouvelle version activée
+                navigator.serviceWorker.addEventListener('message', (event) => {
+                  if (event.data && event.data.type === 'SW_UPDATED') {
+                    console.info('[PWA] Nouveau SW actif :', event.data.version);
+                    showUpdateToast();
+                  }
+                });
+              });
+            }
+          })();
+        </script>
 </body>
+
 

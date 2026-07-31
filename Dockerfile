@@ -58,7 +58,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # la racine de $APP_HOME, monte $APP_HOME/assets en statique sous /assets, et
 # sert manifest.webmanifest/sw.js/favicon.ico individuellement (voir main.py).
 COPY backend/ $APP_HOME/backend/
-COPY index.html manifest.webmanifest sw.js favicon.ico $APP_HOME/
+COPY index.html manifest.webmanifest sw.js offline.html favicon.ico $APP_HOME/
 COPY assets/ $APP_HOME/assets/
 COPY i18n/ $APP_HOME/i18n/
 
