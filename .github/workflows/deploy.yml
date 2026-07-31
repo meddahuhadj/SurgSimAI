@@ -68,6 +68,19 @@ jobs:
       url: https://generalsurg-plan-demo.onrender.com
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Estampiller la version du cache Service Worker
+        # Injecte le timestamp du build dans CACHE_VERSION de sw.js pour forcer
+        # la purge du cache chez tous les utilisateurs après chaque déploiement.
+        # Sans cette étape, les utilisateurs verraient l'ancienne version depuis
+        # leur cache local jusqu'à expiration (potentiellement des jours).
+        run: |
+          BUILD_TS=$(date +%Y%m%d%H%M%S)
+          sed -i "s/generalsurg-shell-v2-[0-9]*/generalsurg-shell-v2-${BUILD_TS}/" sw.js
+          echo "✅ CACHE_VERSION mis à jour : generalsurg-shell-v2-${BUILD_TS}"
+
       - name: Déclencher le redéploiement Render
         # Appelle le Deploy Hook Render (URL secrète → aucun token exposé)
         run: |
