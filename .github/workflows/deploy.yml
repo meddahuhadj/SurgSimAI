@@ -65,7 +65,7 @@ jobs:
 
     environment:
       name: production
-      url: https://generalsurg-plan-demo.onrender.com
+      url: https://generalsurg-plan-mimo-demo.onrender.com
 
     steps:
       - name: Checkout
