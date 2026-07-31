@@ -51,4 +51,8 @@ USER surgadmin
 
 # Pas d'EXPOSE/HEALTHCHECK fixes ici : Render assigne $PORT dynamiquement et
 # fait son propre health check HTTP (voir render.yaml: healthCheckPath).
-CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1"]
+# backend/render_start.py lie la socket d'écoute AVANT l'import de l'app
+# (l'import complet prend ~20-60s+ ; sur le 0,1 vCPU du plan gratuit, il peut
+# dépasser la fenêtre du scan de port Render). Sans cela : erreur Render
+# "Port scan timeout reached, no open ports detected".
+CMD ["sh", "-c", "python backend/render_start.py"]
