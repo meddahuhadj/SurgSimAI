@@ -37,6 +37,69 @@ Ensuite, chaque `git push main` déclenche tests + déploiement automatiquement.
 
 ---
 
+## Option C — Vercel (frontend statique + API légère serverless, gratuit)
+
+Sépare le frontend (statique, servi par le CDN Vercel) d'une API serverless
+réduite (`api/index.py`) qui ne couvre QUE l'authentification, les patients,
+le chat IA et l'audit. **DICOM, volumétrie, segmentation, PACS/DICOMweb et
+HL7 restent indisponibles sur ce déploiement** — ces flux ont besoin de
+sockets TCP persistants (DIMSE, MLLP) et de traitement lourd (TotalSegmentator/
+torch) incompatibles avec le serverless. Pour ces fonctionnalités, gardez
+Option A (Render) ou B (VPS Docker) comme backend, et utilisez Vercel
+uniquement pour le frontend (sans déployer `api/`).
+
+### Étape 1 — Base de données (obligatoire)
+
+Le filesystem des fonctions Vercel n'est pas persistant : SQLite (le défaut
+en dev) perdrait toutes ses données à chaque invocation. Créez une base
+Postgres gratuite, par exemple sur [neon.tech](https://neon.tech) (free tier
+serverless), et récupérez son `DATABASE_URL`
+(`postgresql+psycopg2://user:password@host/dbname?sslmode=require`).
+
+### Étape 2 — Importer le projet sur Vercel
+
+1. [vercel.com](https://vercel.com) → **Add New → Project** → importer ce
+   dépôt GitHub.
+2. Framework Preset : **Other** (aucun build nécessaire pour le frontend
+   statique ; `vercel.json` + `api/index.py` gèrent le reste automatiquement).
+3. **Environment Variables** :
+
+| Variable | Valeur |
+|---|---|
+| `DATABASE_URL` | URL Postgres de l'étape 1 |
+| `JWT_SECRET` | générez avec `openssl rand -hex 32` |
+| `APP_ENV` | `development` (ou `production` si vous retirez `SEED_DEMO_USERS` et durcissez le reste) |
+| `SEED_DEMO_USERS` | `true` pour garder dr.hadj/dr.benali en démo, sinon `false` |
+| `ALLOWED_ORIGINS` | `https://<votre-projet>.vercel.app` (l'URL que Vercel attribue) |
+| `GEMINI_KEY` / `GROQ_KEY` | optionnel, pour que `/chat` fonctionne côté backend plutôt qu'en clé directe navigateur |
+
+4. **Deploy**. Vercel construit `api/index.py` comme fonction Python
+   (dépendances : `api/requirements.txt`, volontairement réduites — pas de
+   `nibabel`/`trimesh`/`pydicom`/`pynetdicom`) et sert `index.html` + `assets/`
+   + `i18n/` en statique depuis la racine du dépôt.
+
+### Étape 3 — Connecter le frontend à cette API
+
+Dans l'app (⚙ Paramètres), renseignez **URL du backend** (`apiBase`) avec
+l'URL Vercel elle-même, ex. `https://votre-projet.vercel.app` (le frontend et
+l'API partagent le même domaine ici, donc pas de souci CORS). Rechargez : la
+connexion/patients/chat passent par `api/index.py` ; toute action DICOM/
+volumétrie renverra une 404 (routers non montés) — attendu sur ce
+déploiement.
+
+### Limites connues
+
+- Pas de DICOM, segmentation, PACS DICOMweb, export FHIR/HL7.
+- `/ws/chat-stream` (chat en streaming) ne fonctionne pas en serverless — le
+  frontend retombe automatiquement sur `/chat` (REST) sans action requise.
+- Cold start Python à chaque invocation après inactivité (comparable au plan
+  gratuit Render).
+- Migrations Alembic à appliquer manuellement sur la base Neon (`alembic
+  upgrade head` depuis votre poste, avec `DATABASE_URL` pointé dessus) — pas
+  d'étape CI/CD automatisée fournie pour cette option.
+
+---
+
 ## Option B — Stack complète VPS / on-prem (Docker Compose)
 
 Guide pour déployer la stack complète (reverse proxy HTTPS + backend + PostgreSQL + PACS Orthanc) sur un serveur que vous contrôlez (VPS, serveur hospitalier on-prem...).
@@ -63,8 +126,12 @@ cp .env.example .env
 | `ACME_EMAIL` | Email de contact Let's Encrypt (alertes d'expiration de certificat) |
 | `POSTGRES_PASSWORD` | Mot de passe PostgreSQL — générez-en un avec `openssl rand -hex 24` |
 | `JWT_SECRET` | Secret de signature des jetons — générez-en un avec `openssl rand -hex 32` |
+| `BOOTSTRAP_ADMIN_USERNAME` | Identifiant du premier compte admin réel (pas un compte de démo) |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Mot de passe de ce compte — générez-en un avec `openssl rand -hex 16` |
 
-**N'utilisez jamais les valeurs d'exemple en production.** Sans ces 4 variables définies, `docker compose up` refuse de démarrer (garde-fous explicites dans `docker-compose.yml` et dans `backend/main.py`).
+**N'utilisez jamais les valeurs d'exemple en production.** Sans ces 6 variables définies, `docker compose up` refuse de démarrer (garde-fous explicites dans `docker-compose.yml` et dans `backend/main.py`).
+
+⚠️ **Fixez toujours `BOOTSTRAP_ADMIN_USERNAME`/`BOOTSTRAP_ADMIN_PASSWORD` dès le tout premier déploiement.** `docker-compose.yml` fixe `SEED_DEMO_USERS=false` et `ALLOW_SELF_REGISTRATION=false` en dur (pas de comptes de démo, pas d'auto-inscription) — sans ce compte de bootstrap, une base vide ne laisse plus personne se connecter, y compris vous-même. Une fois ce premier compte créé (au premier démarrage, base non vide), provisionnez les comptes suivants via `POST /users` (réservé au rôle admin, voir `backend/routers/users.py`) plutôt que de recréer un bootstrap — vous pouvez alors vider ces 2 valeurs dans `.env` par hygiène.
 
 ## 2. Lancer la stack
 
@@ -174,8 +241,12 @@ cp .env.example .env
 | `ACME_EMAIL` | Email de contact Let's Encrypt (alertes d'expiration de certificat) |
 | `POSTGRES_PASSWORD` | Mot de passe PostgreSQL — générez-en un avec `openssl rand -hex 24` |
 | `JWT_SECRET` | Secret de signature des jetons — générez-en un avec `openssl rand -hex 32` |
+| `BOOTSTRAP_ADMIN_USERNAME` | Identifiant du premier compte admin réel (pas un compte de démo) |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Mot de passe de ce compte — générez-en un avec `openssl rand -hex 16` |
 
-**N'utilisez jamais les valeurs d'exemple en production.** Sans ces 4 variables définies, `docker compose up` refuse de démarrer (garde-fous explicites dans `docker-compose.yml` et dans `backend/main.py`).
+**N'utilisez jamais les valeurs d'exemple en production.** Sans ces 6 variables définies, `docker compose up` refuse de démarrer (garde-fous explicites dans `docker-compose.yml` et dans `backend/main.py`).
+
+⚠️ **Fixez toujours `BOOTSTRAP_ADMIN_USERNAME`/`BOOTSTRAP_ADMIN_PASSWORD` dès le tout premier déploiement.** `docker-compose.yml` fixe `SEED_DEMO_USERS=false` et `ALLOW_SELF_REGISTRATION=false` en dur (pas de comptes de démo, pas d'auto-inscription) — sans ce compte de bootstrap, une base vide ne laisse plus personne se connecter, y compris vous-même. Une fois ce premier compte créé (au premier démarrage, base non vide), provisionnez les comptes suivants via `POST /users` (réservé au rôle admin, voir `backend/routers/users.py`) plutôt que de recréer un bootstrap — vous pouvez alors vider ces 2 valeurs dans `.env` par hygiène.
 
 ## 2. Lancer la stack
 

@@ -50,9 +50,18 @@
     "hubToggle": "Changer de module / spécialité",
     "settingsToggle": "Paramètres techniques (Gemini, backend) — réservé au mode recherche/maintenance",
     "patientsToggle": "Patients",
+    "logout": "Se déconnecter",
     "exitOr": "Sortir Mode OR",
     "exitDash": "Sortir Tableau de Bord",
     "researchBanner": "🔬 MODE RECHERCHE ACTIVÉ — les modules affichés ci-dessus sont exploratoires (Jalons M21-M40), non validés cliniquement, et ne doivent pas être utilisés pour la prise de décision au bloc."
+  },
+  "login": {
+    "title": "Connexion",
+    "username": "Identifiant",
+    "password": "Mot de passe",
+    "submit": "Se connecter",
+    "twofaHint": "Code à 6 chiffres (application d'authentification) ou code de secours.",
+    "twofaCode": "Code"
   },
   "lang": {
     "selectorLabel": "Langue",

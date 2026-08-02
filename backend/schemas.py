@@ -96,6 +96,35 @@ class RegisterResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Gestion des comptes (admin) — voir routers/users.py
+# ---------------------------------------------------------------------------
+
+class UserCreateRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9._-]+$")
+    password: str = Field(..., min_length=8, max_length=128)
+    full_name: Optional[str] = Field(None, min_length=1, max_length=128)
+    role: Literal["admin", "surgeon", "dpo"] = "surgeon"
+
+
+class UserUpdateRequest(BaseModel):
+    role: Optional[Literal["admin", "surgeon", "dpo"]] = None
+    is_active: Optional[bool] = None
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    full_name: str
+    role: str
+    is_active: bool
+    totp_enabled: bool
+    last_login_at: Optional[datetime] = None
+    created_at: datetime
+
+
+# ---------------------------------------------------------------------------
 # Patients
 # ---------------------------------------------------------------------------
 

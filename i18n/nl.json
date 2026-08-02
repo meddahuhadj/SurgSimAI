@@ -50,9 +50,18 @@
     "hubToggle": "Module/specialisme wisselen",
     "settingsToggle": "Technische instellingen (Gemini, backend) — alleen onderzoeks-/onderhoudsmodus",
     "patientsToggle": "Patiënten",
+    "logout": "Afmelden",
     "exitOr": "OK-modus verlaten",
     "exitDash": "Dashboard verlaten",
     "researchBanner": "🔬 ONDERZOEKSMODUS ACTIEF — de hierboven getoonde modules zijn experimenteel (mijlpalen M21-M40), niet klinisch gevalideerd, en mogen niet worden gebruikt voor besluitvorming in de operatiekamer."
+  },
+  "login": {
+    "title": "Inloggen",
+    "username": "Gebruikersnaam",
+    "password": "Wachtwoord",
+    "submit": "Inloggen",
+    "twofaHint": "6-cijferige code (authenticator-app) of een herstelcode.",
+    "twofaCode": "Code"
   },
   "lang": {
     "selectorLabel": "Taal",

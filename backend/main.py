@@ -53,6 +53,7 @@ from ai_config import GEMINI_KEY, GROQ_KEY
 from logging_config import setup_logging, correlation_id_var, generate_correlation_id
 
 import routers.auth as auth_router
+import routers.users as users_router
 import routers.patients as patients_router
 import routers.dicom as dicom_router
 import routers.volumetrie as volumetrie_router
@@ -69,6 +70,15 @@ import schemas
 # si la valeur est encore "*", combinée à allow_credentials=True c'était une origine XSS/CSRF).
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000").split(",")
 SEED_DEMO_USERS = os.getenv("SEED_DEMO_USERS", "true").lower() == "true"
+
+# ── Provisionnement d'un vrai compte admin (pilote hospitalier) ────────────
+# Alternative à SEED_DEMO_USERS pour un déploiement réel : contrairement aux
+# comptes de démo (mot de passe public "changeme"), ce compte est créé avec
+# les identifiants choisis par l'opérateur. Voir lifespan() plus bas pour
+# l'ordre de précédence sur SEED_DEMO_USERS si les deux sont définis.
+BOOTSTRAP_ADMIN_USERNAME = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "").strip()
+BOOTSTRAP_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+BOOTSTRAP_ADMIN_FULL_NAME = os.getenv("BOOTSTRAP_ADMIN_FULL_NAME", "").strip()
 
 # ── Logging structuré JSON + correlation IDs ───────────────────────────────
 setup_logging(os.getenv("LOG_LEVEL", "INFO"))
@@ -142,23 +152,57 @@ elif _JWT_SECRET_IS_DEFAULT or SEED_DEMO_USERS:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    if SEED_DEMO_USERS:
-        db = next(get_db())
-        try:
-            if not db.query(models.User).first():
-                # dr.hadj est seedé en rôle "admin" (uniquement pour que /audit, réservé aux
-                # rôles admin/dpo depuis le durcissement RBAC, reste testable en dev) — à
-                # remplacer par une vraie attribution de rôles avant toute mise en production.
-                for username, full_name, role in [("dr.hadj", "Dr. Hadj", "admin"), ("dr.benali", "Dr. Benali", "surgeon")]:
-                    db.add(models.User(
-                        username=username, full_name=full_name, role=role,
-                        hashed_password=sec.hash_password("changeme"),
-                    ))
+    db = next(get_db())
+    try:
+        table_empty = not db.query(models.User).first()
+
+        # Bootstrap-admin (pilote réel) — testé en premier : si défini, il l'emporte
+        # toujours sur SEED_DEMO_USERS même si les deux sont positionnés par erreur,
+        # pour qu'un opérateur qui configure un vrai compte n'obtienne jamais
+        # silencieusement les comptes de démo à la place.
+        if table_empty and BOOTSTRAP_ADMIN_USERNAME and BOOTSTRAP_ADMIN_PASSWORD:
+            if len(BOOTSTRAP_ADMIN_PASSWORD) < 8:
+                logger.error("BOOTSTRAP_ADMIN_PASSWORD trop court (min 8 caractères) — "
+                             "administrateur de bootstrap NON créé.")
+            else:
+                db.add(models.User(
+                    username=BOOTSTRAP_ADMIN_USERNAME,
+                    full_name=BOOTSTRAP_ADMIN_FULL_NAME or BOOTSTRAP_ADMIN_USERNAME,
+                    role="admin",
+                    hashed_password=sec.hash_password(BOOTSTRAP_ADMIN_PASSWORD),
+                ))
                 db.commit()
-                logger.info("Utilisateurs de démonstration créés (dr.hadj / dr.benali, mdp: changeme). "
-                            "À supprimer avant toute mise en production.")
-        finally:
-            db.close()
+                table_empty = False
+                logger.info("Administrateur de bootstrap créé (%s).", BOOTSTRAP_ADMIN_USERNAME)
+
+        if SEED_DEMO_USERS and table_empty:
+            # dr.hadj est seedé en rôle "admin" (uniquement pour que /audit, réservé aux
+            # rôles admin/dpo depuis le durcissement RBAC, reste testable en dev) — à
+            # remplacer par une vraie attribution de rôles avant toute mise en production.
+            for username, full_name, role in [("dr.hadj", "Dr. Hadj", "admin"), ("dr.benali", "Dr. Benali", "surgeon")]:
+                db.add(models.User(
+                    username=username, full_name=full_name, role=role,
+                    hashed_password=sec.hash_password("changeme"),
+                ))
+            db.commit()
+            table_empty = False
+            logger.info("Utilisateurs de démonstration créés (dr.hadj / dr.benali, mdp: changeme). "
+                        "À supprimer avant toute mise en production.")
+
+        if table_empty and APP_ENV == "production":
+            # Ni bootstrap-admin ni seed démo (le garde-fou ci-dessus interdit
+            # SEED_DEMO_USERS=true en production) : personne ne peut se connecter.
+            # /auth/register (si ALLOW_SELF_REGISTRATION=true) ne crée que des
+            # comptes role="surgeon" — jamais de premier admin. Visible mais pas
+            # bloquant : un redémarrage sur une base déjà peuplée ne doit jamais
+            # échouer à cause de ce contrôle.
+            logger.critical(
+                "Base utilisateurs vide en APP_ENV=production, sans BOOTSTRAP_ADMIN_* "
+                "défini — personne ne pourra se connecter. Définissez "
+                "BOOTSTRAP_ADMIN_USERNAME/BOOTSTRAP_ADMIN_PASSWORD puis redémarrez."
+            )
+    finally:
+        db.close()
     # Nettoyage initial du stockage DICOM (TTL + quota)
     try:
         import storage_cleanup
@@ -269,6 +313,7 @@ API_V1 = "/api/v1"
 
 # Version v1 (nouvelle)
 app.include_router(auth_router.router, prefix=API_V1)
+app.include_router(users_router.router, prefix=API_V1)
 app.include_router(patients_router.router, prefix=API_V1)
 app.include_router(dicom_router.router, prefix=API_V1)
 app.include_router(volumetrie_router.router, prefix=API_V1)
@@ -277,6 +322,7 @@ app.include_router(audit_router.router, prefix=API_V1)
 
 # Compatibilité ascendante (anciens chemins, sans prefix)
 app.include_router(auth_router.router)
+app.include_router(users_router.router)
 app.include_router(patients_router.router)
 app.include_router(dicom_router.router)
 app.include_router(volumetrie_router.router)

@@ -28,7 +28,9 @@
           function openHub() {
             // Ferme proprement toute session vocale active avant de quitter le module
             if (typeof gl !== 'undefined' && gl.active) { disconnectGeminiLive(); }
-            document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+            // :not(#modal-login) — une fermeture globale ne doit jamais escamoter la
+            // modale de connexion avant validation (exposerait l'app en dessous).
+            document.querySelectorAll('.modal-overlay.open:not(#modal-login)').forEach(m => m.classList.remove('open'));
 
             const hub = document.getElementById('hub');
             hub.classList.remove('hidden');
@@ -1088,6 +1090,7 @@
                       'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token
                     }, body: JSON.stringify({ message, specialty: state.mod, context: 'surgical-planning' })
                   });
+                  if (await handleUnauthorized(r)) { throw new Error('Session expirée — reconnectez-vous puis reposez votre question.'); }
                   if (!r.ok) throw new Error('Backend: ' + r.status);
                   const data = await r.json();
                   const text = data.reply || 'Réponse vide.';
@@ -1382,7 +1385,7 @@
               open_implants: () => setTab('implants'),
               open_patients: () => openModal('patients'),
               open_settings: () => { prefillSettings(); openModal('settings'); },
-              close_modal: () => document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open')),
+              close_modal: () => document.querySelectorAll('.modal-overlay.open:not(#modal-login)').forEach(m => m.classList.remove('open')),
               recalc_analysis: () => runAnalysis(),
               export_plan: () => exportPlan(),
               switch_hbp: () => switchModule('hbp'),
@@ -1688,19 +1691,163 @@
 
 
           // ════════════════════════════════════════════════
+          //  SESSION — connexion réelle au backend (remplace l'ancien auto-login
+          //  silencieux avec identifiants de démo codés en dur). Connexion
+          //  obligatoire uniquement quand state.settings.apiBase est configuré
+          //  (déploiement pilote) ; comportement anonyme local inchangé sinon
+          //  (démo publique). Jeton conservé dans sessionStorage — effacé à la
+          //  fermeture de l'onglet, adapté à un poste clinique partagé.
+          // ════════════════════════════════════════════════
+          const SESSION_STORAGE_KEY = 'gsp_session';
+          let _sessionPromise = null;
+          let _pendingPreAuthToken = null;
+          let _loginResolve = null;
+
+          function loadSessionFromStorage() {
+            try {
+              const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
+              if (!raw) return null;
+              const s = JSON.parse(raw);
+              if (!s.token || !s.expiresAt || Date.now() >= s.expiresAt) return null;
+              return s;
+            } catch (e) { return null; }
+          }
+
+          function clearSession() {
+            state.session = { token: null, expiresAt: null, username: null, role: null };
+            sessionStorage.removeItem(SESSION_STORAGE_KEY);
+            updateSessionIndicatorUI();
+          }
+
+          function updateSessionIndicatorUI() {
+            const el = document.getElementById('session-indicator');
+            const label = document.getElementById('session-indicator-label');
+            if (!el || !label) return;
+            if (state.session && state.session.token) {
+              label.textContent = `${state.session.username} (${state.session.role})`;
+              el.style.display = 'flex';
+            } else {
+              el.style.display = 'none';
+            }
+          }
+
+          function openLoginGate() {
+            document.getElementById('login-step-password').style.display = 'block';
+            document.getElementById('login-step-2fa').style.display = 'none';
+            document.getElementById('login-error').textContent = '';
+            document.getElementById('login-password').value = '';
+            openModal('login');
+            return new Promise((resolve) => { _loginResolve = resolve; });
+          }
+
+          async function ensureSession() {
+            if (state.session.token && state.session.expiresAt > Date.now()) return state.session.token;
+            const restored = loadSessionFromStorage();
+            if (restored) { state.session = restored; updateSessionIndicatorUI(); return state.session.token; }
+            if (!_sessionPromise) {
+              _sessionPromise = openLoginGate().finally(() => { _sessionPromise = null; });
+            }
+            await _sessionPromise;
+            return state.session.token;
+          }
+
+          // Conservé pour zéro diff sur les 5 sites d'appel existants
+          // (segmentExistingSeries, pacsAuthedFetch, askAI, askAIStreaming,
+          // savePatientEdit) — délègue simplement à ensureSession().
+          async function getBackendToken() { return ensureSession(); }
+
+          async function submitLogin() {
+            const username = document.getElementById('login-username').value.trim();
+            const password = document.getElementById('login-password').value;
+            const errEl = document.getElementById('login-error');
+            errEl.textContent = '';
+            if (!username || !password) { errEl.textContent = 'Identifiant et mot de passe requis.'; return; }
+            const base = state.settings.apiBase.replace(/\/+$/, '');
+            try {
+              const form = new URLSearchParams({ username, password });
+              const r = await fetch(base + '/auth/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form });
+              const data = await r.json().catch(() => ({}));
+              if (r.status === 429) { errEl.textContent = data.detail || 'Trop de tentatives — réessayez dans un instant.'; return; }
+              if (!r.ok) { errEl.textContent = 'Identifiants invalides.'; return; }
+              if (data.requires_2fa) {
+                _pendingPreAuthToken = data.pre_auth_token;
+                document.getElementById('login-step-password').style.display = 'none';
+                document.getElementById('login-step-2fa').style.display = 'block';
+                document.getElementById('login-2fa-error').textContent = '';
+                document.getElementById('login-2fa-code').value = '';
+                document.getElementById('login-2fa-code').focus();
+                return;
+              }
+              await _completeLogin(data, username);
+            } catch (e) {
+              errEl.textContent = 'Backend injoignable : ' + e.message;
+            }
+          }
+
+          async function submitTwoFa() {
+            const code = document.getElementById('login-2fa-code').value.trim();
+            const errEl = document.getElementById('login-2fa-error');
+            errEl.textContent = '';
+            const base = state.settings.apiBase.replace(/\/+$/, '');
+            try {
+              const r = await fetch(base + '/auth/2fa/verify', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pre_auth_token: _pendingPreAuthToken, code }),
+              });
+              const data = await r.json().catch(() => ({}));
+              if (r.status === 429) { errEl.textContent = data.detail || 'Trop de tentatives.'; return; }
+              if (!r.ok) { errEl.textContent = 'Code invalide.'; return; }
+              const username = document.getElementById('login-username').value.trim();
+              await _completeLogin(data, username);
+            } catch (e) {
+              errEl.textContent = 'Backend injoignable : ' + e.message;
+            }
+          }
+
+          async function _completeLogin(tokenResponse, username) {
+            // Le rôle vient du payload JWT (déjà encodé côté backend via
+            // sec.create_token(..., extra={"role":...})) — décodage best-effort,
+            // purement informatif côté client (affichage), jamais utilisé pour une
+            // décision d'autorisation : le backend reste seul juge via require_role().
+            let role = 'surgeon';
+            try {
+              const payload = JSON.parse(atob(tokenResponse.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+              role = payload.role || role;
+            } catch (e) { /* décodage best-effort, non bloquant */ }
+
+            state.session = { token: tokenResponse.access_token, expiresAt: Date.now() + tokenResponse.expires_in * 1000, username, role };
+            sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state.session));
+            if (!state.settings.chirurgien || state.settings.chirurgien === 'Dr. Hadj') {
+              state.settings.chirurgien = username; // pré-remplissage best-effort, personnalisable dans ⚙ Paramètres
+            }
+            _pendingPreAuthToken = null;
+            closeModal('login');
+            updateSessionIndicatorUI();
+            if (_loginResolve) { _loginResolve(); _loginResolve = null; }
+          }
+
+          function logout() {
+            clearSession();
+            notify('Déconnecté.', 'info');
+            if (state.settings.apiBase) { ensureSession(); }
+          }
+
+          // Aide partagée pour les appels authentifiés : sur 401, efface la session
+          // et relance la connexion — NE relance PAS automatiquement l'appel
+          // d'origine (le risque de doublon, ex. démarrer 2x le même job de
+          // segmentation, l'emporte sur un retry silencieux) ; l'appelant décide.
+          async function handleUnauthorized(response) {
+            if (response.status !== 401) return false;
+            clearSession();
+            notify('Session expirée — reconnexion requise.', 'warn');
+            await ensureSession();
+            return true;
+          }
+
+          // ════════════════════════════════════════════════
           //  AI ENGINE — chat du panneau droit (réponse ponctuelle, sans mémoire de session)
           //  Priorité : clé Gemini client → clé Groq client → backend proxy → réponse hors-ligne
           // ════════════════════════════════════════════════
-          async function getBackendToken() {
-            if (state.backendToken) return state.backendToken;
-            const base = state.settings.apiBase.replace(/\/+$/, '');
-            const form = new URLSearchParams({ username: 'dr.hadj', password: 'changeme' });
-            const r = await fetch(base + '/auth/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form });
-            if (!r.ok) throw new Error('Authentification backend refusée');
-            const data = await r.json();
-            state.backendToken = data.access_token;
-            return state.backendToken;
-          }
 
           async function askAI(message) {
             if (state.settings.offlineCertified) {
@@ -1757,6 +1904,7 @@
                     'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token
                   }, body: JSON.stringify({ message, specialty: state.mod, context: 'surgical-planning' })
                 });
+                if (await handleUnauthorized(r)) { throw new Error('Session expirée — reconnectez-vous puis reposez votre question.'); }
                 if (!r.ok) throw new Error('Backend: ' + r.status);
                 const data = await r.json();
                 return data.reply || 'Réponse vide.';
@@ -1816,15 +1964,18 @@
           function closeModal(id) { document.getElementById('modal-' + id).classList.remove('open') }
 
           function saveSettings() {
+            const newApiBase = document.getElementById('input-api-base').value.trim();
+            const apiBaseChanged = newApiBase !== state.settings.apiBase;
             state.settings.geminiKey = document.getElementById('input-gemini-key').value.trim();
             state.settings.geminiModel = document.getElementById('input-gemini-model').value.trim() || 'gemini-flash-latest';
             state.settings.groqKey = document.getElementById('input-groq-key').value.trim();
-            state.settings.apiBase = document.getElementById('input-api-base').value.trim();
+            state.settings.apiBase = newApiBase;
             state.settings.localServerUrl = document.getElementById('input-local-server-url').value.trim();
             state.settings.localServerModel = document.getElementById('input-local-server-model').value.trim() || 'llama3';
             state.settings.chirurgien = document.getElementById('input-chirurgien').value.trim() || state.settings.chirurgien;
             state.settings.offlineCertified = document.getElementById('toggle-offline-certified').classList.contains('on');
-            state.backendToken = null; // force re-auth if backend URL changed
+            // Un jeton émis par un autre backend n'a aucune raison d'être valide ici.
+            if (apiBaseChanged) { clearSession(); }
             closeModal('settings');
             const mode = state.settings.offlineCertified ? '📚 Hors-ligne certifié (forcé)' :
               state.localEngine ? '🔒 Modèle local WebGPU (' + state.localEngineModel + ')' :
@@ -1832,6 +1983,7 @@
                   state.settings.geminiKey ? `Gemini (${state.settings.geminiModel})` :
                     state.settings.groqKey ? 'Groq (clé directe)' : state.settings.apiBase ? 'Backend proxy' : 'Démo hors-ligne';
             notify('Paramètres enregistrés — IA: ' + mode, 'ok');
+            if (apiBaseChanged && state.settings.apiBase) { ensureSession(); }
           }
 
           function prefillSettings() {
@@ -1919,8 +2071,10 @@
                   chirurgien: state.settings.chirurgien, specialty: state.mod, urgence: p.urg || 'vert'
                 };
                 let r = await fetch(base + '/patients/' + p.id, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(body) });
+                if (await handleUnauthorized(r)) { notify('Session expirée — reconnectez-vous puis enregistrez à nouveau.', 'warn'); return; }
                 if (r.status === 404) {
                   r = await fetch(base + '/patients', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(body) });
+                  if (await handleUnauthorized(r)) { notify('Session expirée — reconnectez-vous puis enregistrez à nouveau.', 'warn'); return; }
                 }
                 if (r.ok) notify('Synchronisé avec le backend', 'ok');
                 else notify('Backend: échec de synchronisation (' + r.status + ')', 'warn');
@@ -2711,6 +2865,10 @@
 
           async function init() {
             await initI18nLanguage();
+            // Connexion obligatoire uniquement en mode pilote (apiBase configuré) —
+            // bloque l'accès au hub tant qu'aucune session valide n'existe. La démo
+            // publique (apiBase vide) garde son comportement anonyme inchangé.
+            if (state.settings.apiBase) { await ensureSession(); }
             state.anatomyMode = 'real';
             renderHub();
             renderPatientsTable();

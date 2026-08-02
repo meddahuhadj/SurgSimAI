@@ -479,7 +479,7 @@
             },
             localEngine: null,      // instance MLCEngine (WebLLM) une fois chargée, sinon null
             localEngineModel: null, // id du modèle actuellement chargé en WebGPU
-            backendToken: null,
+            session: { token: null, expiresAt: null, username: null, role: null }, // remplace l'ancien backendToken — voir ensureSession()/clearSession() (app-part3.js)
             aiBusy: false,
             mpr: {
               plane: { axial: 0, coronal: 0, sagittal: 0 },
@@ -1787,6 +1787,11 @@
               const token = await getBackendToken();
               const startResp = await fetch(`${base}/segmentation/from-series/${encodeURIComponent(seriesId)}`,
                 { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } });
+              if (await handleUnauthorized(startResp)) {
+                notify('Reconnecté — relancez la segmentation.', 'info');
+                btn.disabled = false; btn.textContent = originalText;
+                return;
+              }
               if (!startResp.ok) {
                 const body = await startResp.json().catch(() => ({}));
                 throw new Error(body.detail || ('HTTP ' + startResp.status));
@@ -1933,6 +1938,9 @@
             const token = await getBackendToken();
             const headers = Object.assign({ 'Authorization': 'Bearer ' + token }, opts.headers || {});
             const r = await fetch(base + path, Object.assign({}, opts, { headers }));
+            if (await handleUnauthorized(r)) {
+              throw new Error('Session expirée — reconnectez-vous puis relancez cette action.');
+            }
             if (!r.ok) {
               let detail = r.status;
               try { detail = (await r.json()).detail || detail; } catch (e) { }
