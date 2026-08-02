@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, String, Integer, Float, Boolean, Text, DateTime, ForeignKey, JSON
+    Column, String, Integer, Float, Boolean, Text, DateTime, ForeignKey, JSON, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 
@@ -155,6 +155,31 @@ class IcuFollowUp(Base):
     notes = Column(Text, nullable=True)
     auteur = Column(String(128), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    patient = relationship("Patient")
+
+
+class TwinBiomech(Base):
+    """Propriétés mécaniques d'un tissu pour le jumeau numérique déformable —
+    voir feuille de route "Jumeau numérique réel" (README/ARCHITECTURE_CAHIER_DES_CHARGES
+    §2.2.1 twin-service, §3.3 TwinBiomech). Une ligne par (patient, tissue_type) :
+    soit une valeur par défaut issue de la littérature (source="literature_atlas",
+    voir twin_biomech_atlas.py), soit une valeur réelle patiente (source=
+    "patient_elastography" ou "clinician_override") saisie une fois l'élastographie
+    disponible — non implémenté ici, cette table ne fait qu'ouvrir la place.
+    """
+    __tablename__ = "twin_biomech"
+    __table_args__ = (UniqueConstraint("patient_id", "tissue_type", name="uq_twin_biomech_patient_tissue"),)
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    patient_id = Column(String(32), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False)
+    tissue_type = Column(String(32), nullable=False)   # ex. "liver_parenchyma", "liver_tumor", "vessel_wall"
+    model = Column(String(32), nullable=False, default="mooney_rivlin")  # linear | mooney_rivlin | ogden | neo_hookean
+    parameters_json = Column("parameters", JSON, default=dict)  # ex. {"C10_kpa": 2.1, "C01_kpa": 0.3}
+    source = Column(String(32), nullable=False, default="literature_atlas")
+    validation_dataset_ref = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     patient = relationship("Patient")
 

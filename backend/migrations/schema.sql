@@ -125,6 +125,26 @@ CREATE TABLE icu_followups (
     created_at             TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Table: twin_biomech (propriétés mécaniques par tissu, jumeau numérique déformable)
+-- Une ligne par (patient, tissue_type) : défaut littérature (source='literature_atlas',
+-- voir backend/twin_biomech_atlas.py) ou valeur patiente réelle une fois l'élastographie
+-- disponible (source='patient_elastography'/'clinician_override'). Voir feuille de route
+-- "Jumeau numérique réel" (ARCHITECTURE_CAHIER_DES_CHARGES.md §2.2.1/§3.3).
+CREATE TABLE twin_biomech (
+    id                      VARCHAR(36) PRIMARY KEY,
+    patient_id              VARCHAR(32) REFERENCES patients(id) ON DELETE CASCADE,
+    tissue_type             VARCHAR(32) NOT NULL,
+    model                   VARCHAR(32) NOT NULL DEFAULT 'mooney_rivlin' CHECK (model IN ('linear','mooney_rivlin','ogden','neo_hookean')),
+    parameters              JSONB NOT NULL DEFAULT '{}',
+    source                  VARCHAR(32) NOT NULL DEFAULT 'literature_atlas' CHECK (source IN ('literature_atlas','patient_elastography','clinician_override')),
+    validation_dataset_ref  TEXT,
+    created_at              TIMESTAMPTZ DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (patient_id, tissue_type)
+);
+
+CREATE INDEX idx_twin_biomech_patient ON twin_biomech(patient_id);
+
 -- Table: dicom_series
 CREATE TABLE dicom_series (
     id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

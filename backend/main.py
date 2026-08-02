@@ -59,6 +59,7 @@ import routers.volumetrie as volumetrie_router
 import routers.chat as chat_router
 import routers.audit as audit_router
 import routers.anesthesie as anesthesie_router
+import routers.twin as twin_router
 from schemas import DicomSRExportRequest, DicomSRExportResponse
 import schemas
 
@@ -284,6 +285,7 @@ app.include_router(volumetrie_router.router)
 app.include_router(chat_router.router)
 app.include_router(audit_router.router)
 app.include_router(anesthesie_router.router)
+app.include_router(twin_router.router)
 
 # routers/dicom.py charge segmentation_service.py (pipeline réel TotalSegmentator)
 # dans son propre try/except et expose REAL_SEGMENTATION_AVAILABLE : app.mount()

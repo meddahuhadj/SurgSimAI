@@ -263,6 +263,34 @@ class IcuFollowUpOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Jumeau numérique — propriétés biomécaniques (TwinBiomech)
+# ---------------------------------------------------------------------------
+
+BiomechModel = Literal["linear", "mooney_rivlin", "ogden", "neo_hookean"]
+BiomechSource = Literal["literature_atlas", "patient_elastography", "clinician_override"]
+
+
+class TwinBiomechIn(BaseModel):
+    model: BiomechModel = "mooney_rivlin"
+    parameters: Dict[str, float] = Field(..., description="Ex. {\"C10_kpa\": 2.1, \"C01_kpa\": 0.3}")
+    source: BiomechSource = "clinician_override"
+    validation_dataset_ref: Optional[str] = Field(None, max_length=2000)
+
+
+class TwinBiomechOut(BaseModel):
+    id: Optional[str] = None
+    patient_id: str
+    tissue_type: str
+    model: BiomechModel
+    parameters: Dict[str, float]
+    source: BiomechSource
+    validation_dataset_ref: Optional[str] = None
+    note: Optional[str] = Field(None, description="Avertissement d'usage — présent seulement pour les valeurs d'atlas par défaut, absent une fois une vraie valeur patient enregistrée.")
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+# ---------------------------------------------------------------------------
 # DICOM
 # ---------------------------------------------------------------------------
 
