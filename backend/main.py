@@ -36,7 +36,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -564,7 +564,21 @@ if _FRONTEND_I18N_DIR.is_dir():
 async def serve_frontend():
     path = os.path.join(os.path.dirname(__file__), "..", "index.html")
     if os.path.exists(path):
-        return FileResponse(path)
+        # Injecte apiBase = origine courante : CE backend sert lui-même cette
+        # page, donc un vrai backend authentifié est TOUJOURS disponible à
+        # cette origine — active automatiquement le vrai écran de connexion
+        # (voir ensureSession()/getBackendToken() dans assets/app-part3.js)
+        # au lieu du mode anonyme local. Sans effet sur un frontend servi en
+        # statique pur (Vercel, `python -m http.server`) : cette route n'est
+        # atteinte QUE quand ce backend sert lui-même index.html.
+        html = Path(path).read_text(encoding="utf-8")
+        html = html.replace(
+            '<script src="assets/app-part1.js">',
+            '<script>window.APP_CONFIG = { apiBase: window.location.origin };</script>\n'
+            '    <script src="assets/app-part1.js">',
+            1,
+        )
+        return HTMLResponse(html)
     return {"msg": "GeneralSurg Plan MIMO API — voir /docs pour la documentation."}
 
 
