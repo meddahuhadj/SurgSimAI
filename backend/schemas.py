@@ -319,6 +319,31 @@ class TwinBiomechOut(BaseModel):
     updated_at: Optional[datetime] = None
 
 
+class TwinDeformRequest(BaseModel):
+    job_id: str = Field(..., description="Job de segmentation déjà terminé (voir GET /segmentation/status/{job_id})")
+    structure: str = Field(..., description="Nom de structure déjà segmentée, ex. 'liver_total' — doit avoir un maillage tétraédrique construit via POST /segmentation/{job_id}/tetmesh")
+    tissue_type: str = Field(..., description="Clé TwinBiomech pour ce patient (ex. 'liver_parenchyma') — valeur enregistrée si présente, sinon défaut de l'atlas littérature")
+    grab_point_mm: list[float] = Field(..., min_length=3, max_length=3, description="Point 3D (mm, repère du maillage) le plus proche du nœud saisi")
+    target_delta_mm: list[float] = Field(..., min_length=3, max_length=3, description="Déplacement imposé (mm) au nœud saisi")
+    pin_axis_fraction: float = Field(0.12, ge=0.0, le=0.5, description="Fraction de l'étendue en X ancrée (pédicule) — même convention que l'ancrage procédural du frontend")
+    hyd_stiffness: float = Field(0.6, gt=0.0, le=1.0, description="Rigidité volumique (quasi-incompressibilité) — pas dérivée de TwinBiomech, qui ne modélise pas de module de compressibilité séparé")
+    iterations: int = Field(30, ge=1, le=200)
+
+
+class TwinDeformResponse(BaseModel):
+    job_id: str
+    structure: str
+    tissue_type: str
+    num_nodes: int
+    num_tets: int
+    grabbed_node_index: int
+    dev_stiffness: float
+    hyd_stiffness: float
+    volume_ml_before: float
+    volume_ml_after: float
+    displacement_mm: list[list[float]] = Field(..., description="Déplacement (mm) de chaque nœud par rapport à sa position au repos, même ordre que le maillage stocké")
+
+
 # ---------------------------------------------------------------------------
 # DICOM
 # ---------------------------------------------------------------------------
