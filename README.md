@@ -129,8 +129,8 @@ renseignez :
   désactivation 2FA...) écrit une ligne dans `audit_log` : **qui** (user_id + username),
   **quand** (timestamp), **quoi** (action + resource + méthode + chemin), **sur quel
   patient** (patient_id), avec un niveau (`info`/`ok`/`warn`/`error`) et l'IP d'origine.
-- Consultation : `GET /audit?patient_id=...&username=...&limit=100` (JWT requis — à
-  restreindre à un rôle admin/DPO avant mise en production réelle).
+- Consultation : `GET /audit?patient_id=...&username=...&limit=100` — restreint aux
+  rôles `admin`/`dpo` (`routers/audit.py`, `Depends(require_role("admin", "dpo"))`).
 
 ### Testé de bout en bout dans ce sandbox
 Login → création patient → volumétrie → activation 2FA complète (setup + code TOTP réel
@@ -140,13 +140,22 @@ La logique est donc vérifiée ; seul un test contre un vrai PostgreSQL reste à
 utilisateur (`docker compose up -d db`).
 
 ### ⚠️ Avant toute mise en production réelle
-- `SEED_DEMO_USERS=false` dans `.env` (ne pas garder dr.hadj/dr.benali avec mot de passe
-  `changeme`).
-- `JWT_SECRET` : générer une valeur aléatoire longue (`openssl rand -hex 32`).
-- Restreindre `GET /audit` à un rôle admin (actuellement accessible à tout utilisateur
-  authentifié — à durcir selon votre modèle de rôles).
-- Chiffrement au repos de la base (selon votre hébergeur) + sauvegardes régulières
-  (obligatoire pour des données de santé).
+Mise à jour : les 3 premiers points ci-dessous sont maintenant **imposés par le code
+lui-même**, pas seulement documentés — `main.py` refuse de démarrer si
+`APP_ENV=production` et que la config n'est pas sûre :
+- `SEED_DEMO_USERS=false` dans `.env` (sinon `APP_ENV=production` bloque le démarrage
+  avec un message explicite — voir `main.py`, section garde-fou démarrage).
+- `JWT_SECRET` : générer une valeur aléatoire longue (`openssl rand -hex 32`) et la
+  positionner explicitement — un secret par défaut ou auto-généré bloque aussi le
+  démarrage en `APP_ENV=production` (voir `security.py`/`main.py`).
+- `GET /audit` est déjà restreint aux rôles `admin`/`dpo` (`routers/audit.py`).
+- Restent à votre charge (infrastructure, pas du code applicatif) :
+  - `DATABASE_URL` pointant vers un PostgreSQL réellement persistant (voir ci-dessus) —
+    le plan gratuit Render (`render.yaml`) tourne volontairement en SQLite éphémère et
+    `APP_ENV=development`, pour rester une démo gratuite sans carte bancaire.
+  - Chiffrement au repos de la base (selon votre hébergeur) + sauvegardes régulières
+    (obligatoire pour des données de santé).
+  - Hébergement HDS si données de santé françaises réelles.
 
 ## Backend v2.2 — Connecteurs PACS (DICOMweb) + export FHIR R4 / HL7 v2 (priorité 4)
 
