@@ -1007,6 +1007,18 @@
             ].join('\n');
           }
 
+          // Référence patient PSEUDONYMISÉE pour tout texte envoyé à une IA cloud
+          // externe (Gemini/Groq — direct avec la clé de l'utilisateur, ou via le
+          // proxy backend, les deux cas de figure) : remplace le nom réel par
+          // l'identifiant de dossier interne, jamais transmis à un tiers hors de ce
+          // système. Voir aussi backend/phi_filter.py (deuxième ligne de défense,
+          // best-effort, côté serveur — celle-ci est la protection principale, car
+          // elle s'applique aussi au chemin "clé API directe" qui ne passe jamais
+          // par le backend et qu'aucun filtre serveur ne peut donc intercepter).
+          function pseudonymPatientRef(patient) {
+            return `Dossier ${patient.id}`;
+          }
+
           function liveSystemPrompt() {
             const mod = MODULES[state.mod];
             const warn = mod.metrics.filter(m => m.st === 'warn').map(m => `${m.label}: ${m.val}`).join(', ') || 'aucune';
@@ -1014,7 +1026,7 @@
               `Tu es "GeneralSurg Live", l'assistant chirurgical vocal intégré au poste de planification ${mod.name}.`,
               `Tu participes à une conversation ORALE CONTINUE en temps réel avec un chirurgien pendant sa préparation opératoire — pas à un échange écrit formel.`,
               ``,
-              `Contexte patient actif : ${mod.patient.nom}, ${mod.patient.age} ans, ${mod.patient.sexe}, diagnostic "${mod.patient.diag}", niveau d'urgence: ${mod.patient.urg}.`,
+              `Contexte patient actif : ${pseudonymPatientRef(mod.patient)}, ${mod.patient.age} ans, ${mod.patient.sexe}, diagnostic "${mod.patient.diag}", niveau d'urgence: ${mod.patient.urg}.`,
               `Métriques hors cible actuellement affichées : ${warn}.`,
               ``,
               SPECIALTY_PROMPTS[state.mod] || '',
@@ -1504,7 +1516,7 @@
               if (setupResolve) setupResolve(true);
               setTimeout(() => setGeminiLiveStatus('listening'), 400);
               const mod = MODULES[state.mod];
-              sendGeminiLiveText(`Bonjour, je suis prêt à planifier le cas de ${mod.patient.nom}. Présente-toi brièvement en une phrase et confirme que tu es prêt.`, true);
+              sendGeminiLiveText(`Bonjour, je suis prêt à planifier le cas du ${pseudonymPatientRef(mod.patient)}. Présente-toi brièvement en une phrase et confirme que tu es prêt.`, true);
               return;
             }
             if (data.serverContent) {
@@ -1857,7 +1869,7 @@
             // I18N : la langue de réponse suit la langue active de l'interface (I18N.currentLocale()),
             // pas "français" codé en dur — voir I18N.t('ai.respondInLanguage').
             const system = `Tu es l'assistant chirurgical IA GeneralSurg Plan, spécialisé en ${mod.name}. ` +
-              `Patient en cours: ${mod.patient.nom}, ${mod.patient.age} ans, diagnostic: ${mod.patient.diag}. ` +
+              `Patient en cours: ${pseudonymPatientRef(mod.patient)}, ${mod.patient.age} ans, diagnostic: ${mod.patient.diag}. ` +
               `${I18N.t('ai.respondInLanguage', { language: I18N.languageName() })} Réponse concise (3-5 phrases max) et cliniquement pertinente. ` +
               `Rappelle que la décision finale reste au chirurgien.` +
               '\n' + voiceCommandInstructions();

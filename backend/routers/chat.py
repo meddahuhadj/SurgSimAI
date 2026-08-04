@@ -20,6 +20,7 @@ import models
 import resilience
 from ai_config import GEMINI_KEY, GEMINI_MODEL, GROQ_KEY, GROQ_MODEL
 from deps import get_current_user
+from phi_filter import redact_text
 from schemas import AIProxyRequest, ChatRequest, ChatResponse
 from specialties import SPECIALTY_LABELS
 
@@ -58,13 +59,19 @@ async def chat(req: ChatRequest, request: Request, current: models.User = Depend
         f"Utilisateur: {current.full_name}. Réponds UNIQUEMENT en français, de façon concise et "
         "cliniquement pertinente. Précise que la décision finale reste au chirurgien."
     ) + ACTION_COMMAND_INSTRUCTIONS
+    # Deuxième ligne de défense (best-effort) avant tout envoi à Gemini/Groq — voir
+    # phi_filter.py. La protection principale est en amont, côté frontend
+    # (assets/app-part3.js, pseudonymPatientRef) : ce message libre tapé par le
+    # chirurgien peut néanmoins contenir incidemment un identifiant (email,
+    # téléphone, date de naissance...).
+    safe_message = redact_text(req.message)
     errors: List[str] = []
 
     if GEMINI_KEY:
         async def _call_gemini():
             body = {
                 "system_instruction": {"parts": [{"text": system_prompt}]},
-                "contents": [{"role": "user", "parts": [{"text": req.message}]}],
+                "contents": [{"role": "user", "parts": [{"text": safe_message}]}],
                 "generationConfig": {"maxOutputTokens": 512, "temperature": 0.4},
             }
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}"
@@ -84,7 +91,7 @@ async def chat(req: ChatRequest, request: Request, current: models.User = Depend
     if GROQ_KEY:
         async def _call_groq():
             body = {"model": GROQ_MODEL, "messages": [{"role": "system", "content": system_prompt},
-                                                        {"role": "user", "content": req.message}],
+                                                        {"role": "user", "content": safe_message}],
                     "max_tokens": 512, "temperature": 0.4}
             headers = {"Authorization": f"Bearer {GROQ_KEY}"}
             async with httpx.AsyncClient(timeout=45) as client:
@@ -111,6 +118,13 @@ async def chat(req: ChatRequest, request: Request, current: models.User = Depend
 
 @router.post("/api/ai/gemini")
 async def proxy_gemini(req: AIProxyRequest, current: models.User = Depends(get_current_user)):
+    """Proxy BRUT (req.body transmis tel quel à l'API Gemini) — pas de filtre
+    phi_filter.redact_text ici : `req.body` est une structure Gemini arbitraire
+    (contents/parts imbriqués), pas un champ texte unique connu, donc pas de
+    point d'application sûr sans risquer de corrompre la requête. La défense
+    contre une fuite du nom du patient reste en amont, côté frontend
+    (assets/app-part3.js, pseudonymPatientRef) qui construit ce `req.body` — ce
+    proxy est utilisé exactement par le même code que /chat et /ws/chat-stream."""
     if not GEMINI_KEY:
         raise HTTPException(503, "Clé Gemini non configurée.")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{req.model}:generateContent?key={GEMINI_KEY}"
@@ -141,6 +155,15 @@ async def ws_chat_stream(ws: WebSocket):
         await ws.send_text(json.dumps({"error": "Message vide"}))
         await ws.close()
         return
+
+    # Deuxième ligne de défense (best-effort) avant tout envoi à Gemini/Groq — voir
+    # phi_filter.py. La protection principale est en amont, côté frontend
+    # (assets/app-part3.js, pseudonymPatientRef) : `system`/`context` viennent du
+    # frontend et `message` est du texte libre tapé par le chirurgien, qui peut
+    # contenir incidemment un identifiant (email, téléphone, date de naissance...).
+    user_msg = redact_text(user_msg)
+    context = redact_text(context)
+    system = redact_text(system)
 
     full_prompt = f"{system}\n\n{context}\n\nMessage du chirurgien: {user_msg}"
 
