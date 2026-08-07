@@ -3444,22 +3444,20 @@
               this._setBanner('loading');
 
               try {
-                // ── ÉTAPE 1 : Vérification PACS (imagerie disponible ?) ──
-                this._setStep(1, 8, 'Vérification disponibilité imagerie sur PACS...');
-                if (signal.aborted) return;
-                await this._delay(350);
-
-                // ── ÉTAPE 2 : Interrogation WADO-RS / Téléchargement DICOM ──
-                this._setStep(2, 28, 'Interrogation WADO-RS — Téléchargement de la série CT/IRM...');
-                if (signal.aborted) return;
-                await this._delay(500);
-
-                // ── ÉTAPE 3 : Segmentation IA TotalSegmentator (104 structures) ──
-                this._setStep(3, 58, 'Segmentation IA TotalSegmentator v2 — 104 organes...');
+                // Honnêteté (audit) : on tente D'ABORD l'appel réel, avant toute animation
+                // d'étapes. Les anciennes étapes 1/2 ("Vérification PACS...", "Interrogation
+                // WADO-RS...") s'affichaient avec un délai artificiel MÊME quand aucun appel
+                // réseau PACS n'avait lieu — pur théâtre UX qui laissait croire à une ingestion
+                // PACS/DICOM réelle avant de retomber sur l'estimation locale. Désormais, les
+                // libellés "PACS / WADO-RS / TotalSegmentator / Marching Cubes" ne s'affichent
+                // que si le backend a RÉELLEMENT répondu (RESEARCH_MODE=true côté serveur, voir
+                // real_patient_dicom_mesh_service.py) ; sinon on bascule immédiatement et
+                // honnêtement sur l'estimation locale, sans faux pipeline animé.
+                this._setStep(1, 15, 'Contact du backend de segmentation patient-spécifique...');
                 if (signal.aborted) return;
 
-                // Appel backend (avec fallback local si non disponible)
                 let data = null;
+                let real = false;
                 try {
                   const resp = await fetch('/api/v2/patient-anatomy/ingest-and-reconstruct', {
                     method: 'POST',
@@ -3472,23 +3470,32 @@
                       ai_segmentation_engine: 'TOTAL_SEGMENTATOR_V2_3D_MONAI'
                     })
                   });
-                  if (resp.ok) data = await resp.json();
+                  if (resp.ok) { data = await resp.json(); real = true; }
                 } catch (fetchErr) {
                   if (signal.aborted) return;
-                  // Backend indisponible → génère des données réalistes patient-spécifiques localement
-                  data = this._generateLocalPatientData(patId);
                 }
                 if (signal.aborted) return;
 
-                // ── ÉTAPE 4 : Génération des maillages 3D (Marching Cubes) ──
-                this._setStep(4, 80, 'Génération des maillages 3D Marching Cubes lissés...');
-                await this._delay(400);
-                if (signal.aborted) return;
-
-                // ── ÉTAPE 5 : Application au Jumeau Numérique ──
-                this._setStep(5, 96, 'Application au Jumeau Numérique — Rendu 3D patient-spécifique...');
-                await this._delay(300);
-                if (signal.aborted) return;
+                if (real) {
+                  // ── Animation d'étapes UNIQUEMENT quand le backend a réellement répondu ──
+                  this._setStep(2, 40, 'Imagerie PACS/DICOM récupérée par le backend...');
+                  await this._delay(200);
+                  if (signal.aborted) return;
+                  this._setStep(3, 65, 'Segmentation IA TotalSegmentator appliquée par le backend...');
+                  await this._delay(200);
+                  if (signal.aborted) return;
+                  this._setStep(4, 85, 'Maillages 3D reçus du backend...');
+                  await this._delay(200);
+                  if (signal.aborted) return;
+                  this._setStep(5, 96, 'Application au Jumeau Numérique — Rendu 3D patient-spécifique...');
+                  await this._delay(200);
+                  if (signal.aborted) return;
+                } else {
+                  // Backend indisponible → estimation locale, annoncée honnêtement, sans
+                  // simuler d'étapes de pipeline qui n'ont pas eu lieu.
+                  this._setStep(5, 96, 'Backend de segmentation réelle indisponible — estimation locale...');
+                  data = this._generateLocalPatientData(patId);
+                }
 
                 // Met en cache et applique
                 this._cache[patId] = data;
