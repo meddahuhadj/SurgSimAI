@@ -14,6 +14,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 import models
+from clinical_scores import (
+    compute_bilan_net, compute_glasgow, compute_news2, compute_sofa,
+    news2_escalation, sepsis_organ_dysfunction,
+)
 from db import get_db
 from deps import get_current_user, write_audit
 from schemas import (
@@ -88,11 +92,6 @@ async def upsert_preanesthesie(patient_id: str, body: PreanesthesiaAssessmentIn,
 # Suivi réanimation / USI
 # ---------------------------------------------------------------------------
 
-def _sum_or_none(*vals) -> "int | None":
-    present = [v for v in vals if v is not None]
-    return sum(present) if present else None
-
-
 def _followup_out(rec: models.IcuFollowUp) -> IcuFollowUpOut:
     return IcuFollowUpOut(
         id=rec.id, patient_id=rec.patient_id, recorded_at=rec.recorded_at,
@@ -106,6 +105,10 @@ def _followup_out(rec: models.IcuFollowUp) -> IcuFollowUpOut:
         vent_mode=rec.vent_mode, vent_fio2_pct=rec.vent_fio2_pct, vent_peep_cmh2o=rec.vent_peep_cmh2o,
         vent_vt_ml=rec.vent_vt_ml, vent_fr_rpm=rec.vent_fr_rpm,
         bilan_entrees_ml=rec.bilan_entrees_ml, bilan_sorties_ml=rec.bilan_sorties_ml, bilan_net_ml=rec.bilan_net_ml,
+        resp_rate_rpm=rec.resp_rate_rpm, spo2_pct=rec.spo2_pct,
+        supplemental_o2=bool(rec.supplemental_o2), systolic_bp_mmhg=rec.systolic_bp_mmhg,
+        heart_rate_bpm=rec.heart_rate_bpm, temperature_c=rec.temperature_c, avpu=rec.avpu,
+        news2_total=rec.news2_total, sepsis_alert=bool(rec.sepsis_alert), plan_id=rec.plan_id,
         notes=rec.notes, auteur=rec.auteur, created_at=rec.created_at,
     )
 
@@ -128,27 +131,45 @@ async def create_icu_followup(patient_id: str, body: IcuFollowUpIn, request: Req
         raise HTTPException(404, "Patient introuvable.")
 
     data = body.model_dump(exclude_unset=True)
-    rec = models.IcuFollowUp(patient_id=patient_id)
+    plan_id = data.pop("plan_id", None)
+    if plan_id is not None:
+        plan = db.get(models.SurgicalPlan, plan_id)
+        if not plan or plan.patient_id != patient_id:
+            raise HTTPException(404, "Plan chirurgical introuvable pour ce patient.")
+        if plan.status != "validated":
+            raise HTTPException(409, "Le suivi réanimation ne peut référencer qu'un plan chirurgical validé.")
+
+    rec = models.IcuFollowUp(patient_id=patient_id, plan_id=plan_id)
     for k, v in data.items():
         setattr(rec, k, v)
     if rec.recorded_at is None:
         rec.recorded_at = datetime.utcnow()
 
-    # Totaux calculés côté serveur (source de vérité, ne dépend pas du calcul client) :
-    rec.sofa_total = _sum_or_none(
+    # Totaux et alertes calculés côté serveur (source de vérité, ne dépendent pas du client) :
+    rec.sofa_total = compute_sofa(
         rec.sofa_respiration, rec.sofa_coagulation, rec.sofa_hepatique,
         rec.sofa_cardiovasculaire, rec.sofa_neurologique, rec.sofa_renal,
     )
-    rec.glasgow_total = _sum_or_none(rec.glasgow_oculaire, rec.glasgow_verbale, rec.glasgow_motrice)
-    if rec.bilan_entrees_ml is not None or rec.bilan_sorties_ml is not None:
-        rec.bilan_net_ml = (rec.bilan_entrees_ml or 0) - (rec.bilan_sorties_ml or 0)
+    rec.glasgow_total = compute_glasgow(rec.glasgow_oculaire, rec.glasgow_verbale, rec.glasgow_motrice)
+    rec.bilan_net_ml = compute_bilan_net(rec.bilan_entrees_ml, rec.bilan_sorties_ml)
+    rec.news2_total = compute_news2(
+        resp_rate_rpm=rec.resp_rate_rpm, spo2_pct=rec.spo2_pct,
+        supplemental_o2=rec.supplemental_o2, systolic_bp_mmhg=rec.systolic_bp_mmhg,
+        heart_rate_bpm=rec.heart_rate_bpm, temperature_c=rec.temperature_c, avpu=rec.avpu,
+    )
+    rec.sepsis_alert = sepsis_organ_dysfunction(rec.sofa_total)
 
     db.add(rec)
     db.commit()
     db.refresh(rec)
     write_audit(db, request, "Ajout suivi réanimation/USI", "icu_followup", user=current,
                 patient_id=patient_id, niveau="ok",
-                metadata={"sofa_total": rec.sofa_total, "glasgow_total": rec.glasgow_total})
+                metadata={
+                    "sofa_total": rec.sofa_total, "glasgow_total": rec.glasgow_total,
+                    "news2_total": rec.news2_total,
+                    "escalation": news2_escalation(rec.news2_total)["level"],
+                    "sepsis_alert": rec.sepsis_alert, "plan_id": plan_id,
+                })
     return _followup_out(rec)
 
 

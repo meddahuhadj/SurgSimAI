@@ -189,6 +189,62 @@ class SegmentOut(SegmentCreate):
 
 
 # ---------------------------------------------------------------------------
+# Plans chirurgicaux versionnés (cycle de planification réelle)
+# ---------------------------------------------------------------------------
+
+PlanStatus = Literal["draft", "reviewed", "validated", "rejected"]
+
+
+class SurgicalPlanIn(BaseModel):
+    procedure: str = Field(..., min_length=1, max_length=256)
+    snapshot: Optional[Dict[str, Any]] = None
+    source_series_id: Optional[str] = Field(None, max_length=36)
+    notes: Optional[str] = Field(None, max_length=4000)
+
+
+class SurgicalPlanUpdate(BaseModel):
+    procedure: Optional[str] = Field(None, min_length=1, max_length=256)
+    snapshot: Optional[Dict[str, Any]] = None
+    source_series_id: Optional[str] = Field(None, max_length=36)
+    notes: Optional[str] = Field(None, max_length=4000)
+    expected_version: Optional[int] = Field(None, ge=1, description="Version attendue — 409 si la base a une autre version (modification concourante)")
+
+
+class SurgicalPlanReviewIn(BaseModel):
+    comment: Optional[str] = Field(None, max_length=2000)
+
+
+class SurgicalPlanValidateIn(BaseModel):
+    comment: Optional[str] = Field(None, max_length=2000)
+
+
+class SurgicalPlanRejectIn(BaseModel):
+    comment: str = Field(..., min_length=1, max_length=2000)
+
+
+class SurgicalPlanOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    patient_id: str
+    version: int
+    status: PlanStatus
+    procedure: Optional[str] = None
+    author_id: Optional[int] = None
+    author_name: Optional[str] = None
+    snapshot: Optional[Dict[str, Any]] = Field(None, validation_alias="snapshot_json")
+    source_series_id: Optional[str] = None
+    notes: Optional[str] = None
+    comment: Optional[str] = None
+    signed_by: Optional[str] = None
+    signed_at: Optional[datetime] = None
+    reviewed_by: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
 # Dossier & évaluation pré-anesthésique
 # ---------------------------------------------------------------------------
 
@@ -257,6 +313,16 @@ class IcuFollowUpIn(BaseModel):
     vent_fr_rpm: Optional[float] = Field(None, ge=0, le=60)
     bilan_entrees_ml: Optional[float] = None
     bilan_sorties_ml: Optional[float] = None
+    # NEWS2 — constantes vitales (score total calculé côté serveur)
+    resp_rate_rpm: Optional[int] = Field(None, ge=1, le=60)
+    spo2_pct: Optional[int] = Field(None, ge=50, le=100)
+    supplemental_o2: Optional[bool] = None
+    systolic_bp_mmhg: Optional[int] = Field(None, ge=40, le=300)
+    heart_rate_bpm: Optional[int] = Field(None, ge=20, le=250)
+    temperature_c: Optional[float] = Field(None, ge=30, le=43)
+    avpu: Optional[str] = Field(None, pattern="^[AVPU]$")
+    # Lien vers le plan chirurgical validé (rejeté avec 409 si non validé)
+    plan_id: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=4000)
     auteur: Optional[str] = Field(None, max_length=128)
 
@@ -286,6 +352,16 @@ class IcuFollowUpOut(BaseModel):
     bilan_entrees_ml: Optional[float] = None
     bilan_sorties_ml: Optional[float] = None
     bilan_net_ml: Optional[float] = None
+    resp_rate_rpm: Optional[int] = None
+    spo2_pct: Optional[int] = None
+    supplemental_o2: bool = False
+    systolic_bp_mmhg: Optional[int] = None
+    heart_rate_bpm: Optional[int] = None
+    temperature_c: Optional[float] = None
+    avpu: Optional[str] = None
+    news2_total: Optional[int] = None
+    sepsis_alert: bool = False
+    plan_id: Optional[str] = None
     notes: Optional[str] = None
     auteur: Optional[str] = None
     created_at: datetime

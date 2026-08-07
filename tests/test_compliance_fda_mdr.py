@@ -71,16 +71,21 @@ def test_biomech_respiratory_displacement_is_labeled_as_simplified_model():
     assert "note" in data
 
 
-def test_biomech_elastic_registration_no_longer_fabricates_results():
+def test_biomech_elastic_registration_computes_a_real_result():
     """
-    L'ancien endpoint /elastic-registration renvoyait des métriques de convergence
-    fixes (final_rms_mm=0.34, 18 itérations) indépendamment du nuage de points fourni
-    — aucun recalage n'était réellement calculé. Vérifie que l'endpoint déclare
-    maintenant honnêtement l'absence d'implémentation au lieu de fabriquer un résultat.
+    L'ancien endpoint /elastic-registration renvoyait soit des métriques de
+    convergence FIXES (final_rms_mm=0.34, 18 itérations) indépendantes du nuage
+    fourni, soit un statut honnête "not_implemented" — aucun recalage n'était
+    calculé dans les deux cas. L'endpoint calcule désormais un VRAI recalage
+    (ICP rigide + FFD B-spline, voir registration.py et backend/tests/
+    test_registration.py). Vérifie que le résultat est réellement calculé à
+    partir des nuages fournis (RMS variable, pas une constante codée en dur)
+    et qu'il reste honnête sur l'absence de validation clinique.
     """
     payload = {
         "twin_id": "TWIN-TEST-001",
         "intraop_point_cloud": [[10.2, 24.5, -5.1], [12.0, 25.1, -4.8], [15.4, 22.0, -6.2]],
+        "preop_point_cloud": [[9.8, 24.0, -5.5], [12.5, 24.7, -4.9], [15.0, 21.5, -6.0]],
         "stiffness_regularization": 0.05,
         "max_iterations": 50,
     }
@@ -88,9 +93,15 @@ def test_biomech_elastic_registration_no_longer_fabricates_results():
     assert response.status_code == 200
     data = response.json()
 
-    assert data["status"] == "not_implemented"
-    assert data["num_points_received"] == len(payload["intraop_point_cloud"])
-    assert "final_rms_error_mm" not in data
+    assert data["status"] == "computed"
+    assert data["num_points_intraop"] == len(payload["intraop_point_cloud"])
+    assert data["num_points_preop"] == len(payload["preop_point_cloud"])
+    # RMS réellement calculé (point flottant dépendant des données d'entrée) —
+    # pas une constante fixe comme l'ancien 0.34 fabricé.
+    assert isinstance(data["non_rigid_refinement"]["rms_mm"], float)
+    assert data["rigid_transform"]["converged"] in (True, False)
+    # Honnêteté : le recalage n'est pas présenté comme cliniquement validé.
+    assert "note" in data and "validé" in data["note"] and "pas" in data["note"]
 
 
 def test_voice_dictate_report_is_labeled_as_keyword_matching_not_llm():

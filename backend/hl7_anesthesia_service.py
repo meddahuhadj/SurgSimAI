@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -38,6 +39,23 @@ from logging_config import get_logger
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v2/or-monitor", tags=["or-anesthesia-monitoring"])
+
+# ── Garde-fou production ─────────────────────────────────────────────────────
+# Ces endpoints sont des SIMULATIONS (sinus/cosinus, règles heuristiques à seuils
+# fixes) : ils ne doivent JAMAIS servir de base à une décision clinique. En
+# APP_ENV=production ils répondent 503 au lieu de données simulées, pour éviter
+# qu'un clinicien ne les confonde avec un vrai moniteur d'anesthésie.
+_APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+
+
+def _reject_simulated_in_production() -> None:
+    if _APP_ENV == "production":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Endpoint de simulation d'anesthésie désactivé en production : les constantes "
+                   "sont générées par des formules (sinus/cosinus) et des règles heuristiques, "
+                   "pas acquises depuis un appareil réel. Ne jamais utiliser pour une décision clinique.",
+        )
 
 # ---------------------------------------------------------------------------
 # Modèles Pydantic pour la simulation hémodynamique et le clampage
@@ -60,6 +78,7 @@ async def get_live_hemodynamic_monitor(twin_id: str, phase_t: Optional[float] = 
     ⚠️ Données SIMULÉES : aucune connexion à un respirateur ou moniteur d'anesthésie réel.
     Génère une variation sinus/cosinus paramétrique autour de valeurs de repos plausibles.
     """
+    _reject_simulated_in_production()
     t = phase_t if phase_t is not None else time.time()
 
     # Fonctions sinus/cosinus paramétriques — PAS des mesures physiologiques réelles
@@ -102,6 +121,7 @@ async def simulate_vascular_clamping_hemodynamics(
     lors d'un clampage vasculaire (ex: Manœuvre de Pringle, clampage artère rénale ou colique).
     Génère des alertes prédictives pour l'anesthésiste et le chirurgien.
     """
+    _reject_simulated_in_production()
     now_utc = datetime.now(timezone.utc).isoformat()
     event_id = str(uuid.uuid4())
     

@@ -152,11 +152,29 @@ class IcuFollowUp(Base):
     bilan_sorties_ml = Column(Float, nullable=True)
     bilan_net_ml = Column(Float, nullable=True)
 
+    # NEWS2 — constantes vitales (saisie) + score total calculé serveur
+    resp_rate_rpm = Column(Integer, nullable=True)
+    spo2_pct = Column(Integer, nullable=True)
+    supplemental_o2 = Column(Boolean, default=False)
+    systolic_bp_mmhg = Column(Integer, nullable=True)
+    heart_rate_bpm = Column(Integer, nullable=True)
+    temperature_c = Column(Float, nullable=True)
+    avpu = Column(String(8), nullable=True)          # A / V / P / U
+    news2_total = Column(Integer, nullable=True)
+
+    # Alerte Sepsis-3 : dysfonction organique si SOFA >= 2 (calculée serveur)
+    sepsis_alert = Column(Boolean, default=False)
+
+    # Lien de traçabilité vers le plan chirurgical VALIDÉ (post-op en USI)
+    plan_id = Column(String(36), ForeignKey("surgical_plans.id", ondelete="SET NULL"),
+                     nullable=True, index=True)
+
     notes = Column(Text, nullable=True)
     auteur = Column(String(128), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     patient = relationship("Patient")
+    plan = relationship("SurgicalPlan")
 
 
 class TwinBiomech(Base):
@@ -201,6 +219,40 @@ class DicomSeries(Base):
     filename = Column(String(256), nullable=True)
     local_path = Column(String(512), nullable=True)  # dossier disque contenant les fichiers .dcm réels (si sauvegardés)
     imported_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SurgicalPlan(Base):
+    """Plan chirurgical versionné (cycle de planification réelle).
+
+    Objet persistant par patient, versionné (UNIQUE(patient_id, version)),
+    qui suit un cycle de validation : draft → reviewed → validated (signé,
+    figé, source de vérité pour le bloc) | rejected. Contrairement au
+    prototype (plan volatil perdu au rafraîchissement), une modification
+    d'un plan validé se traduit par la création d'une nouvelle version.
+    Miroir de migrations/versions/e5f6a7b8c9d0_add_surgical_plans.py.
+    """
+    __tablename__ = "surgical_plans"
+    __table_args__ = (UniqueConstraint("patient_id", "version", name="uq_surgical_plans_patient_version"),)
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    patient_id = Column(String(32), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False)
+    version = Column(Integer, nullable=False)
+    status = Column(String(16), nullable=False, default="draft")
+    procedure = Column(String(256), nullable=True)
+    author_id = Column(Integer, nullable=True)
+    author_name = Column(String(128), nullable=True)
+    snapshot_json = Column("snapshot", JSON, default=dict)
+    source_series_id = Column(String(36), nullable=True)
+    notes = Column(Text, nullable=True)
+    comment = Column(Text, nullable=True)
+    signed_by = Column(String(128), nullable=True)
+    signed_at = Column(DateTime, nullable=True)
+    reviewed_by = Column(String(128), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    patient = relationship("Patient")
 
 
 class VolumetrieResult(Base):

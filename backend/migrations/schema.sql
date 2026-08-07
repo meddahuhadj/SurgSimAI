@@ -120,10 +120,21 @@ CREATE TABLE icu_followups (
     bilan_entrees_ml       REAL,
     bilan_sorties_ml       REAL,
     bilan_net_ml           REAL,
+    resp_rate_rpm          INTEGER CHECK (resp_rate_rpm BETWEEN 1 AND 60),
+    spo2_pct               INTEGER CHECK (spo2_pct BETWEEN 50 AND 100),
+    supplemental_o2        BOOLEAN NOT NULL DEFAULT FALSE,
+    systolic_bp_mmhg       INTEGER CHECK (systolic_bp_mmhg BETWEEN 40 AND 300),
+    heart_rate_bpm         INTEGER CHECK (heart_rate_bpm BETWEEN 20 AND 250),
+    temperature_c          REAL,
+    avpu                   VARCHAR(8) CHECK (avpu IN ('A', 'V', 'P', 'U')),
+    news2_total            INTEGER,
+    sepsis_alert           BOOLEAN NOT NULL DEFAULT FALSE,
+    plan_id                VARCHAR(36) REFERENCES surgical_plans(id) ON DELETE SET NULL,
     notes                  TEXT,
     auteur                 VARCHAR(128),
     created_at             TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE INDEX idx_icu_followups_plan ON icu_followups(plan_id);
 
 -- Table: twin_biomech (propriétés mécaniques par tissu, jumeau numérique déformable)
 -- Une ligne par (patient, tissue_type) : défaut littérature (source='literature_atlas',
@@ -290,31 +301,31 @@ CREATE INDEX idx_digital_twins_patient ON digital_twins(patient_id);
 CREATE TRIGGER digital_twins_updated_at BEFORE UPDATE ON digital_twins
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
--- Table: surgical_plans (Plans Chirurgicaux & Check-list IA)
+-- Table: surgical_plans (Cycle de planification réelle — plans versionnés par patient)
+-- Statuts: draft → reviewed → validated (signé) | rejected. Miroir de models.SurgicalPlan.
 CREATE TABLE surgical_plans (
-    id                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    twin_id                 UUID NOT NULL REFERENCES digital_twins(id) ON DELETE CASCADE,
-    patient_id              VARCHAR(32) NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
-    lead_surgeon_username   VARCHAR(64) NOT NULL,
-    title                   VARCHAR(256) NOT NULL,
-    specialty               VARCHAR(64) NOT NULL DEFAULT 'HBP',
-    planned_procedure_code  VARCHAR(64) NOT NULL DEFAULT 'CCAM-HMFA004',
-    strategy_status         VARCHAR(32) NOT NULL DEFAULT 'AI_PROPOSED' CHECK (strategy_status IN ('DRAFT', 'AI_PROPOSED', 'APPROVED', 'IN_PROGRESS', 'COMPLETED', 'ABORTED')),
-    resection_volume_ml     REAL,
-    remnant_volume_ml       REAL,
-    remnant_ratio_pct       REAL,
-    estimated_blood_loss_ml REAL,
-    estimated_duration_min  INTEGER,
-    safety_margins_mm       REAL NOT NULL DEFAULT 5.0,
-    ai_risk_score           REAL,
-    ai_shap_explanations    JSONB,
-    preop_checklist_status  JSONB NOT NULL DEFAULT '{"all_cleared": false, "warnings": []}'::jsonb,
-    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                VARCHAR(36) PRIMARY KEY,
+    patient_id        VARCHAR(32) NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    version           INTEGER NOT NULL,
+    status            VARCHAR(16) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'reviewed', 'validated', 'rejected')),
+    procedure         VARCHAR(256),
+    author_id         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    author_name       VARCHAR(128),
+    snapshot          JSONB,
+    source_series_id  VARCHAR(36) REFERENCES dicom_series(id) ON DELETE SET NULL,
+    notes             TEXT,
+    comment           TEXT,
+    signed_by         VARCHAR(128),
+    signed_at         TIMESTAMPTZ,
+    reviewed_by       VARCHAR(128),
+    reviewed_at       TIMESTAMPTZ,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_surgical_plans_patient_version UNIQUE (patient_id, version)
 );
 
 CREATE INDEX idx_surgical_plans_patient ON surgical_plans(patient_id);
-CREATE INDEX idx_surgical_plans_status ON surgical_plans(strategy_status);
+CREATE INDEX idx_surgical_plans_status ON surgical_plans(status);
 CREATE TRIGGER surgical_plans_updated_at BEFORE UPDATE ON surgical_plans
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 

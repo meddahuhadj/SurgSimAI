@@ -268,26 +268,25 @@ async def simulate_3d_cutting(payload: CuttingSimulationRequest, db: Session = D
     status_msg = "SÉCURISÉ — Marges oncologiques respectées ✅" if is_safe else f"ALERTE RAPPROCHEMENT — Marge minimale observée ({min_observed_margin_mm} mm) inférieure au seuil de sécurité ! ⚠️"
     
     # Enregistrement d'un plan chirurgical virtuel dans la base de données
+    # (schéma versionné surgical_plans : draft → reviewed → validated | rejected)
     plan_id = str(uuid.uuid4())
     try:
         db.execute(text("""
             INSERT INTO surgical_plans (
-                id, twin_id, patient_id, lead_surgeon_username, title, specialty,
-                resection_volume_ml, remnant_volume_ml, remnant_ratio_pct,
-                safety_margins_mm, ai_risk_score, strategy_status, created_at, updated_at
+                id, patient_id, version, status, procedure, author_name, notes, created_at, updated_at
             ) VALUES (
-                :id, :tid, (SELECT patient_id FROM digital_twins WHERE id = :tid LIMIT 1),
-                'dr.hadj', :title, 'HBP', :res_vol, :rem_vol, :flr, :margin, :risk, 'AI_PROPOSED', NOW(), NOW()
+                :id, (SELECT patient_id FROM digital_twins WHERE id = :tid LIMIT 1),
+                1, 'draft', :title, 'dr.hadj', :notes, NOW(), NOW()
             )
         """), {
             "id": plan_id,
             "tid": payload.twin_id,
             "title": f"Résection virtuelle segments {payload.resected_segments} (WebGPU Cutting)",
-            "res_vol": resected_vol,
-            "rem_vol": remnant_vol,
-            "flr": flr_pct,
-            "margin": payload.safety_margin_mm,
-            "risk": 11.2 if is_safe else 23.8
+            "notes": (
+                f"Plan virtuel (recherche) — résequé {resected_vol:.1f} ml, "
+                f"reste {remnant_vol:.1f} ml (FLR {flr_pct}%), "
+                f"marge {payload.safety_margin_mm} mm, risque IA {'11.2' if is_safe else '23.8'}."
+            )
         })
         db.commit()
     except Exception as e:
