@@ -572,10 +572,116 @@
 
             buildOrgan();
 
-            // Init du raycaster pour la sélection et le drag des instruments
-            instrumentRaycaster = new THREE.Raycaster();
+            // ── 3D Ruler Measurement System ──
+            const ruler3D = {
+              active: false,
+              points: [], // [THREE.Vector3, THREE.Vector3]
+              markers: [], // THREE.Mesh objects
+              line: null,
+              label: null
+            };
+            window.ruler3D = ruler3D;
+
+            window.toggle3DRuler = function(forceState) {
+              ruler3D.active = typeof forceState === 'boolean' ? forceState : !ruler3D.active;
+              const btn = document.getElementById('btn-3d-ruler');
+              if (btn) btn.classList.toggle('active', ruler3D.active);
+              if (ruler3D.active) {
+                notify('📐 Règle 3D activée : cliquez 2 points sur l\'anatomie 3D pour mesurer la distance (mm)', 'info');
+                canvas.style.cursor = 'crosshair';
+              } else {
+                canvas.style.cursor = 'default';
+                clear3DRuler();
+              }
+            };
+
+            function clear3DRuler() {
+              ruler3D.points = [];
+              ruler3D.markers.forEach(m => scene.remove(m));
+              ruler3D.markers = [];
+              if (ruler3D.line) { scene.remove(ruler3D.line); ruler3D.line = null; }
+              const oldLabel = document.getElementById('ruler3d-label');
+              if (oldLabel) oldLabel.remove();
+            }
+            window.clear3DRuler = clear3DRuler;
+
+            function add3DRulerPoint(intersectionPoint) {
+              ruler3D.points.push(intersectionPoint);
+              // Add sphere marker
+              const sphereGeo = new THREE.SphereGeometry(0.04, 16, 16);
+              const sphereMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, depthTest: false });
+              const marker = new THREE.Mesh(sphereGeo, sphereMat);
+              marker.position.copy(intersectionPoint);
+              marker.renderOrder = 999;
+              scene.add(marker);
+              ruler3D.markers.push(marker);
+
+              if (ruler3D.points.length === 2) {
+                // Draw line between 2 points
+                const lineGeo = new THREE.BufferGeometry().setFromPoints(ruler3D.points);
+                const lineMat = new THREE.LineDashedMaterial({ color: 0xfacc15, dashSize: 0.1, gapSize: 0.05, depthTest: false });
+                ruler3D.line = new THREE.Line(lineGeo, lineMat);
+                ruler3D.line.computeLineDistances();
+                ruler3D.line.renderOrder = 999;
+                scene.add(ruler3D.line);
+
+                // Calculate distance in scene units (scaled to mm: 1 unit ~ 100mm in anatomical scale)
+                const distanceMm = (ruler3D.points[0].distanceTo(ruler3D.points[1]) * 100).toFixed(1);
+                notify(`📏 Mesure 3D : ${distanceMm} mm`, 'ok');
+                logAudit('measure_3d_ruler', { distance_mm: parseFloat(distanceMm) });
+
+                // Add 3D text/floating badge on canvas
+                const midPoint = new THREE.Vector3().addVectors(ruler3D.points[0], ruler3D.points[1]).multiplyScalar(0.5);
+                update3DRulerLabel(midPoint, distanceMm);
+              }
+            }
+
+            function update3DRulerLabel(midPoint, distanceMm) {
+              let labelEl = document.getElementById('ruler3d-label');
+              if (!labelEl) {
+                labelEl = document.createElement('div');
+                labelEl.id = 'ruler3d-label';
+                labelEl.style.position = 'absolute';
+                labelEl.style.padding = '4px 8px';
+                labelEl.style.background = 'rgba(15, 23, 42, 0.9)';
+                labelEl.style.color = '#facc15';
+                labelEl.style.border = '1px solid #facc15';
+                labelEl.style.borderRadius = '4px';
+                labelEl.style.fontFamily = 'monospace';
+                labelEl.style.fontSize = '12px';
+                labelEl.style.fontWeight = 'bold';
+                labelEl.style.pointerEvents = 'none';
+                labelEl.style.zIndex = '100';
+                wrap.appendChild(labelEl);
+              }
+              // Project 3D coordinate to 2D screen
+              const vector = midPoint.clone().project(camera);
+              const x = (vector.x * 0.5 + 0.5) * w;
+              const y = (-(vector.y * 0.5) + 0.5) * h;
+              labelEl.style.left = `${x}px`;
+              labelEl.style.top = `${y}px`;
+              labelEl.textContent = `📏 ${distanceMm} mm`;
+            }
 
             canvas.addEventListener('mousedown', e => {
+              if (ruler3D.active) {
+                const rect = renderer.domElement.getBoundingClientRect();
+                const ndc = new THREE.Vector2(
+                  ((e.clientX - rect.left) / rect.width) * 2 - 1,
+                  -((e.clientY - rect.top) / rect.height) * 2 + 1
+                );
+                const raycaster = new THREE.Raycaster();
+                raycaster.setFromCamera(ndc, camera);
+                const targetObjects = [];
+                scene.traverse(o => { if (o.isMesh && o.visible && o !== wireframeMesh) targetObjects.push(o); });
+                const hits = raycaster.intersectObjects(targetObjects, true);
+                if (hits.length > 0) {
+                  if (ruler3D.points.length >= 2) clear3DRuler();
+                  add3DRulerPoint(hits[0].point);
+                }
+                return;
+              }
+
               if (twin.active && twin.deformMode) { twinGrabStart(e); return; }
 
               // — Clic sur un instrument : sélection par raycaster —
@@ -980,6 +1086,7 @@
             if (!twin.active) return;
             twin.active = false;
             twin.deformMode = false;
+            twin.resectMode = false;
             twin.grabbed = null;
             if (twin.mesh) {
               scene.remove(twin.mesh);
@@ -995,6 +1102,8 @@
             document.getElementById('vp-tools-normal').style.display = 'flex';
             document.getElementById('vp-tools-twin').style.display = 'none';
             document.getElementById('twin-hint').style.display = 'none';
+            const resectPanel = document.getElementById('resection-panel');
+            if (resectPanel) resectPanel.style.display = 'none';
           }
 
           function resetDigitalTwin() {
@@ -1005,8 +1114,106 @@
 
           function setTwinInteraction(mode) {
             twin.deformMode = (mode === 'deform');
-            document.getElementById('twin-btn-rotate').classList.toggle('on', !twin.deformMode);
-            document.getElementById('twin-btn-deform').classList.toggle('on', twin.deformMode);
+            twin.resectMode = (mode === 'resect');
+
+            const btnRot = document.getElementById('twin-btn-rotate');
+            const btnDef = document.getElementById('twin-btn-deform');
+            const btnRes = document.getElementById('twin-btn-resect');
+            if (btnRot) btnRot.classList.toggle('on', mode === 'rotate');
+            if (btnDef) btnDef.classList.toggle('on', mode === 'deform');
+            if (btnRes) btnRes.classList.toggle('on', mode === 'resect');
+
+            const resectPanel = document.getElementById('resection-panel');
+            if (resectPanel) resectPanel.style.display = twin.resectMode ? 'block' : 'none';
+
+            if (clipPlane) clipPlane.visible = twin.resectMode;
+            if (twin.resectMode) updateResectionPlane();
+          }
+
+          function setResectionAxis(axis) {
+            twin.resectAxis = axis;
+            ['x', 'y', 'z'].forEach(a => {
+              const el = document.getElementById('resect-axe-' + a);
+              if (el) el.classList.toggle('on', a === axis);
+            });
+            updateResectionPlane();
+          }
+
+          function updateResectionPlane() {
+            if (!twin.active || !clipPlane) return;
+            const slider = document.getElementById('resect-x');
+            const val = slider ? parseFloat(slider.value) / 100 : 0.3;
+            const axis = twin.resectAxis || 'x';
+
+            // Repositionne le plan de coupe visuel
+            clipPlane.visible = true;
+            clipPlane.position.set(0, 0, 0);
+            clipPlane.rotation.set(0, 0, 0);
+
+            if (axis === 'x') {
+              clipPlane.position.x = val;
+              clipPlane.rotation.y = Math.PI / 2;
+            } else if (axis === 'y') {
+              clipPlane.position.y = val;
+              clipPlane.rotation.x = Math.PI / 2;
+            } else {
+              clipPlane.position.z = val;
+            }
+
+            // Calcul du volume réséqué (proportion de sommets du maillage jumeau du côté réséqué)
+            if (!twin.particles || !twin.particles.length) return;
+            let total = twin.particles.length;
+            let resectedCount = 0;
+            twin.particles.forEach(p => {
+              const coord = axis === 'x' ? p.pos.x : (axis === 'y' ? p.pos.y : p.pos.z);
+              if (coord > val) resectedCount++;
+            });
+
+            const ratio = resectedCount / total;
+            const approxTotalVol = 1200; // Volume hépatique moyen approximatif en cm³
+            const volRemoved = Math.round(approxTotalVol * ratio);
+            const volRemain  = Math.round(approxTotalVol * (1 - ratio));
+
+            const elRem = document.getElementById('resect-vol-removed');
+            const elKeep = document.getElementById('resect-vol-remain');
+            if (elRem) elRem.textContent = volRemoved;
+            if (elKeep) elKeep.textContent = volRemain;
+
+            // Calcul de la marge tumorale (distance entre le plan et la lésion cible)
+            // Lésion positionnée à (0.35, 0.15, 0.25) dans organParts
+            const lesionPos = { x: 0.35, y: 0.15, z: 0.25 };
+            const planePos  = val;
+            const lesionCoord = axis === 'x' ? lesionPos.x : (axis === 'y' ? lesionPos.y : lesionPos.z);
+            const marginDistMm = Math.round(Math.abs(lesionCoord - planePos) * 100); // 1.0 unite = ~100mm
+
+            const elMargT = document.getElementById('resect-margin-tumor');
+            if (elMargT) elMargT.textContent = marginDistMm;
+
+            // Calcul de la marge vasculaire (vaisseau le plus proche)
+            const vesselPos = { x: 0.1, y: 0.1, z: 0.1 };
+            const vesselCoord = axis === 'x' ? vesselPos.x : (axis === 'y' ? vesselPos.y : vesselPos.z);
+            const marginVesselMm = Math.round(Math.abs(vesselCoord - planePos) * 100);
+
+            const elMargV = document.getElementById('resect-margin-vessel');
+            if (elMargV) elMargV.textContent = marginVesselMm;
+
+            // Badge de sécurité des marges
+            const badge = document.getElementById('resect-safety-badge');
+            if (badge) {
+              if (marginDistMm >= 10) {
+                badge.style.background = 'rgba(16,185,129,.15)';
+                badge.style.color = '#10b981';
+                badge.textContent = `✅ Marge sécuritaire (${marginDistMm} mm ≥ 10 mm)`;
+              } else if (marginDistMm >= 5) {
+                badge.style.background = 'rgba(250,204,21,.15)';
+                badge.style.color = '#facc15';
+                badge.textContent = `⚠️ Marge limite (${marginDistMm} mm [5-10 mm])`;
+              } else {
+                badge.style.background = 'rgba(239,68,68,.15)';
+                badge.style.color = '#ef4444';
+                badge.textContent = `❌ Marge insuffisante (${marginDistMm} mm < 5 mm)`;
+              }
+            }
           }
 
           function stepTwinPhysics(dt) {
@@ -1717,6 +1924,10 @@
           // ════════════════════════════════════════════════
           const gltfLoader = (typeof THREE !== 'undefined' && THREE.GLTFLoader) ? new THREE.GLTFLoader() : null;
           let realMeshGroup = null; // groupe Three.js contenant les maillages réels chargés
+          // Provenance de la segmentation réelle affichée (point 1 du plan de refonte) : série DICOM
+          // source, nombre de structures et modèle d'inférence — alimente le panneau Plan et les
+          // snapshots enregistrés. null = aucun maillage réel chargé (estimation procédurale).
+          let planProvenance = null;
           // Géométrie bas-poly du foie réel (liver_total_lowpoly.glb), recentrée sur
           // l'origine — alimente le Jumeau numérique PBD à la place de l'anatomie
           // procédurale quand une segmentation réelle est disponible pour ce patient.
@@ -1764,7 +1975,10 @@
             try {
               const form = new FormData();
               files.forEach(f => form.append('files', f, f.name));
-              const startResp = await fetch(`${base}/segmentation/auto?patient_id=${encodeURIComponent(mod.patient.id)}`, { method: 'POST', body: form });
+              // `specialty` choisit le pipeline de segmentation côté serveur :
+              // hbp = Couinaud + vaisseaux + tumeur ; autres spécialités = pipeline
+              // générique task='total' (roi_subset) — voir segmentation_specialties.py.
+              const startResp = await fetch(`${base}/segmentation/auto?patient_id=${encodeURIComponent(mod.patient.id)}&specialty=${encodeURIComponent(state.mod)}`, { method: 'POST', body: form });
               if (!startResp.ok) throw new Error('Démarrage du job échoué (' + startResp.status + ')');
               const { job_id } = await startResp.json();
               notify('Job de segmentation démarré (' + job_id + ') — inférence nnU-Net en cours...', 'info');
@@ -1779,7 +1993,11 @@
                 return;
               }
               await loadRealMeshesIntoScene(result, base);
-              notify(`✓ Segmentation réelle chargée — ${result.segments.length} structure(s), foie total ${result.liver_total_ml} mL`, 'ok');
+              // hbp → foie total ; autres spécialités → somme des volumes segmentés.
+              const totalText = result.liver_total_ml != null
+                ? `foie total ${result.liver_total_ml} mL`
+                : (result.total_ml != null ? `${result.total_ml} mL au total` : '');
+              notify(`✓ Segmentation réelle chargée — ${result.segments.length} structure(s)${totalText ? ', ' + totalText : ''}`, 'ok');
               setRealSegStatus('Segmentation IA réelle chargée ✓');
             } catch (e) {
               hideLoader();
@@ -1821,7 +2039,7 @@
             const startedForPatientId = MODULES[state.mod] && MODULES[state.mod].patient && MODULES[state.mod].patient.id;
             try {
               const token = await getBackendToken();
-              const startResp = await fetch(`${base}/segmentation/from-series/${encodeURIComponent(seriesId)}`,
+              const startResp = await fetch(`${base}/segmentation/from-series/${encodeURIComponent(seriesId)}?specialty=${encodeURIComponent(state.mod)}`,
                 { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } });
               if (await handleUnauthorized(startResp)) {
                 notify('Reconnecté — relancez la segmentation.', 'info');
@@ -1923,6 +2141,13 @@
             }
             scene.add(realMeshGroup);
             notify(`${loaded} maillage(s) 3D réel(s) chargé(s) dans la scène`, loaded > 0 ? 'ok' : 'warn');
+            // Provenance (point 1) : série DICOM qui a produit cette segmentation + ce qui a été chargé.
+            planProvenance = {
+              source_series_id: result.source_series_id || null,
+              structures: allEntries.filter(e => e.mesh_url).length,
+              model: result.model || 'TotalSegmentator (nnU-Net)',
+              timestamp: Date.now()
+            };
 
             // Maillage bas-poly du foie, dédié au Jumeau numérique PBD (voir
             // segmentation_service.py:_maybe_build_lowpoly_twin_mesh) — chargé

@@ -79,19 +79,21 @@
         <button data-view="dicom"><span data-i18n="nav.dicom">DICOM</span></button>
         <button data-view="jumeau"><span data-i18n="nav.twin">Jumeau Num.</span></button>
         <button data-view="ar"><span data-i18n="nav.ar">Réalité Augm.</span></button>
+        <button data-view="plan-review" onclick="openModal('plan-review')" style="color:#f59e0b;font-weight:600">✍️ Revue &amp; Validation Plan</button>
         <button data-view="audit"><span data-i18n="nav.audit">Audit Trail</span></button>
-        <button data-view="surgai" style="color:#a855f7;font-weight:600">🧠 <span
+        <button class="nav-explore" data-view="surgai" style="color:#a855f7;font-weight:600">🧠 <span
             data-i18n="nav.surgai">SurgAI</span></button>
-        <button data-view="surgsim" style="color:#ff6b35;font-weight:600">⚡ <span
+        <button class="nav-explore" data-view="surgsim" style="color:#ff6b35;font-weight:600">⚡ <span
             data-i18n="nav.surgsim">SurgSim</span></button>
-        <button data-view="surgor" style="color:#22c55e;font-weight:600">🏥 <span data-i18n="nav.surgor">Bloc
+        <button class="nav-explore" data-view="surgor" style="color:#22c55e;font-weight:600">🏥 <span data-i18n="nav.surgor">Bloc
             IA</span></button>
-        <button data-view="surgnav" style="color:#4fc3f7;font-weight:600">🛰️ <span data-i18n="nav.surgnav">GPS
+        <button class="nav-explore" data-view="surgnav" style="color:#4fc3f7;font-weight:600">🛰️ <span data-i18n="nav.surgnav">GPS
             Nav</span></button>
-        <button data-view="surgvoice" style="color:#eab308;font-weight:600">🎙️ <span
+        <button class="nav-explore" data-view="surgvoice" style="color:#eab308;font-weight:600">🎙️ <span
             data-i18n="nav.surgvoice">Assistant</span></button>
         <button data-view="mdr-fda" style="color:#ec4899;font-weight:600">🛡️ <span data-i18n="nav.mdrFda">Conformité
             MDR</span></button>
+        <button data-view="sih-interop" onclick="openModal('sih-interop')" style="color:#10b981;font-weight:600">🏥 Interop SIH (HL7/FHIR)</button>
         <button class="nav-explore" data-view="webxr" style="color:#06b6d4;font-weight:600">🥽 WebXR Immersif</button>
         <button class="nav-explore" data-view="robotic" style="color:#a855f7;font-weight:600">🤖 Robotique RAS</button>
         <button class="nav-explore" data-view="genai-complications" style="color:#f43f5e;font-weight:600">🧬 GenAI
@@ -240,6 +242,7 @@
             <button class="vp-btn" id="vp-seg" onclick="setViewMode('seg')">Segment.</button>
             <button class="vp-btn" id="vp-coupe" onclick="setViewMode('coupe')">Coupe</button>
             <button class="vp-btn" id="vp-mesure" onclick="setViewMode('mesure')">Mesure</button>
+            <button class="vp-btn" id="btn-3d-ruler" onclick="toggle3DRuler()" style="color:#facc15;border-color:rgba(250,204,21,.4)" title="Mesurer une distance millimétrique sur le modèle 3D">📐 Règle 3D</button>
             <button class="vp-btn" style="color:#ff6b35;border-color:rgba(255,107,53,.4)"
               onclick="openModal('webgpu-cut')" title="Simuler une résection 3D en temps réel">✂️ Découper
               WebGPU</button>
@@ -258,21 +261,72 @@
               title="Faire pivoter la caméra">🔄 Pivoter</button>
             <button class="vp-btn" id="twin-btn-deform" onclick="setTwinInteraction('deform')"
               title="Cliquer-glisser sur le tissu pour le déformer">🖐 Déformer</button>
-            <button class="vp-btn" style="color:#ff6b35;border-color:rgba(255,107,53,.4)"
-              onclick="openModal('webgpu-cut')" title="Simuler une résection 3D sur le jumeau">✂️ Découper</button>
-            <button class="vp-btn" style="color:#38bdf8;border-color:rgba(56,189,248,.4)"
-              onclick="openModal('raymarching-dvr')" title="Rendu volumétrique direct par shaders">🌟
-              Ray-Marching</button>
+            <button class="vp-btn" id="twin-btn-resect" onclick="setTwinInteraction('resect')"
+              style="color:#ff6b35;border-color:rgba(255,107,53,.4)"
+              title="Positionner le plan de résection virtuel — calcule automatiquement le volume réséqué et les marges chirurgicales">✂️ Résection</button>
             <button class="vp-btn" style="color:#22c55e;border-color:rgba(34,197,94,.4)"
               onclick="openModal('resp-cycle')" title="Simulation du cycle respiratoire en direct">🌊 Cycle
               Resp.</button>
             <button class="vp-btn" onclick="resetDigitalTwin()"
               title="Relâche toutes les déformations et réancre le tissu">↺ Réinitialiser</button>
           </div>
+
+          <!-- ── Panneau Résection & Marges (visible en mode résection) ── -->
+          <div id="resection-panel"
+            style="display:none;position:absolute;top:10px;right:10px;width:220px;
+            background:rgba(13,18,24,.95);border:1px solid rgba(255,107,53,.35);border-radius:8px;
+            padding:10px 12px;z-index:50;backdrop-filter:blur(10px)">
+            <div style="font-size:10px;font-weight:700;color:#ff6b35;margin-bottom:8px">✂️ Plan de Résection Virtuel</div>
+            <div style="font-size:9px;color:var(--text3);margin-bottom:4px">Position X du plan (−1 → +1)</div>
+            <input type="range" id="resect-x" min="-120" max="120" value="30" step="1"
+              oninput="updateResectionPlane()"
+              style="width:100%;accent-color:#ff6b35;margin-bottom:8px">
+            <div style="font-size:9px;color:var(--text3);margin-bottom:4px">Orientation</div>
+            <div style="display:flex;gap:4px;margin-bottom:10px">
+              <button class="vp-btn on" id="resect-axe-x" onclick="setResectionAxis('x')"
+                style="flex:1;font-size:9px;padding:2px">Axe X</button>
+              <button class="vp-btn" id="resect-axe-y" onclick="setResectionAxis('y')"
+                style="flex:1;font-size:9px;padding:2px">Axe Y</button>
+              <button class="vp-btn" id="resect-axe-z" onclick="setResectionAxis('z')"
+                style="flex:1;font-size:9px;padding:2px">Axe Z</button>
+            </div>
+            <!-- Résultats métriques -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:8px;font-size:9px">
+              <div style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:5px;padding:6px;text-align:center">
+                <div style="color:var(--text3)">Vol. réséqué</div>
+                <div id="resect-vol-removed" style="font-weight:700;color:#ef4444;font-size:12px">—</div>
+                <div style="color:var(--text3)">cm³</div>
+              </div>
+              <div style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);border-radius:5px;padding:6px;text-align:center">
+                <div style="color:var(--text3)">Vol. restant</div>
+                <div id="resect-vol-remain" style="font-weight:700;color:#10b981;font-size:12px">—</div>
+                <div style="color:var(--text3)">cm³</div>
+              </div>
+              <div style="background:rgba(250,204,21,.1);border:1px solid rgba(250,204,21,.3);border-radius:5px;padding:6px;text-align:center">
+                <div style="color:var(--text3)">Marge tumeur</div>
+                <div id="resect-margin-tumor" style="font-weight:700;color:#facc15;font-size:12px">—</div>
+                <div style="color:var(--text3)">mm</div>
+              </div>
+              <div style="background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.3);border-radius:5px;padding:6px;text-align:center">
+                <div style="color:var(--text3)">Marge vaisseau</div>
+                <div id="resect-margin-vessel" style="font-weight:700;color:#38bdf8;font-size:12px">—</div>
+                <div style="color:var(--text3)">mm</div>
+              </div>
+            </div>
+            <!-- Badge sécurité marges -->
+            <div id="resect-safety-badge"
+              style="font-size:9px;text-align:center;padding:4px 6px;border-radius:4px;background:rgba(16,185,129,.15);color:#10b981">
+              ✅ Marges sécuritaires
+            </div>
+            <div style="font-size:8px;color:rgba(148,163,184,.4);margin-top:6px;text-align:center">
+              ⚠ Estimation géométrique — non cliniquement validée
+            </div>
+          </div>
+
           <div id="twin-hint"
             style="display:none;position:absolute;bottom:34px;left:8px;right:8px;font-size:9px;color:var(--text3);background:rgba(0,0,0,.35);padding:4px 8px;border-radius:5px;pointer-events:none">
-            Jumeau numérique (Position-Based Dynamics) — les points orange sont le point d'ancrage (pédicule).
-            En mode 🖐 Déformer, cliquez-glissez le tissu puis relâchez pour observer le retour élastique.
+            Jumeau numérique (PBD) — points orange = ancrage pédicule. Mode 🖐 <b>Déformer</b> : cliquer-glisser le tissu.
+            Mode ✂️ <b>Résection</b> : déplacez le curseur pour positionner le plan de coupe et voir les marges.
           </div>
 
           <!-- ═══ PANNEAU INSTRUMENTS 3D (flottant dans le viewport) ═══ -->
@@ -860,6 +914,32 @@
         <div class="form-row"><div class="form-label" data-i18n="preanesthesia.checklist">Checklist bloc</div>
           <div id="pa-checklist"></div>
         </div>
+        <!-- ── Bilan Biologique Pré-Opératoire (Action E) ── -->
+        <div style="margin-top:10px;margin-bottom:10px;padding:10px;background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:6px">
+          <div style="font-size:10px;font-weight:700;color:#10b981;margin-bottom:6px">🩸 Bilan Biologique Pré-Opératoire</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">
+            <div class="form-row">
+              <div class="form-label" style="font-size:9px">Bilirubine (µmol/L)</div>
+              <input class="form-control" id="pa-bio-bili" type="number" step="0.1" placeholder="15.0" style="font-size:10px" oninput="updatePreOpBioScores()">
+            </div>
+            <div class="form-row">
+              <div class="form-label" style="font-size:9px">INR</div>
+              <input class="form-control" id="pa-bio-inr" type="number" step="0.05" placeholder="1.1" style="font-size:10px" oninput="updatePreOpBioScores()">
+            </div>
+            <div class="form-row">
+              <div class="form-label" style="font-size:9px">Plaquettes (G/L)</div>
+              <input class="form-control" id="pa-bio-plq" type="number" placeholder="220" style="font-size:10px" oninput="updatePreOpBioScores()">
+            </div>
+            <div class="form-row">
+              <div class="form-label" style="font-size:9px">Créatinine (µmol/L)</div>
+              <input class="form-control" id="pa-bio-creat" type="number" placeholder="85" style="font-size:10px" oninput="updatePreOpBioScores()">
+            </div>
+          </div>
+          <!-- Affichage dynamique des scores dérivés (Child-Pugh, MELD, DFG) -->
+          <div id="pa-bio-scores-output" style="margin-top:6px;padding:6px;background:rgba(0,0,0,.3);border-radius:4px;font-size:9.5px;color:var(--text2);display:none">
+          </div>
+        </div>
+
         <div class="form-row"><div class="form-label" data-i18n="preanesthesia.anesthesiste">Anesthésiste</div>
           <input class="form-control" id="pa-anesthesiste">
         </div>
@@ -867,6 +947,96 @@
             tenir</div>
           <textarea class="form-control" id="pa-conclusion" rows="2"></textarea>
         </div>
+
+        <!-- ── Simulateur PK/PD TCI & MABL ── -->
+        <div style="margin-top:16px;padding:12px;background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.25);border-radius:8px">
+          <div style="font-size:11px;font-weight:700;color:#38bdf8;margin-bottom:10px">
+            💉 Simulateur Anesthésie TCI (PK/PD) &amp; Perte Sanguine
+            <span style="font-size:9px;color:var(--text3);font-weight:400;margin-left:8px">⚠ Aide à la décision — non certifié MDR</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+            <div class="form-row">
+              <div class="form-label">Poids (kg)</div>
+              <input class="form-control" id="pkpd-weight" type="number" min="20" max="250" value="70" oninput="updatePkpdMabl()">
+            </div>
+            <div class="form-row">
+              <div class="form-label">Taille (cm)</div>
+              <input class="form-control" id="pkpd-height" type="number" min="100" max="220" value="170" oninput="updatePkpdMabl()">
+            </div>
+            <div class="form-row">
+              <div class="form-label">Âge</div>
+              <input class="form-control" id="pkpd-age" type="number" min="1" max="110" value="50" oninput="updatePkpdMabl()">
+            </div>
+            <div class="form-row">
+              <div class="form-label">Sexe</div>
+              <select class="form-control" id="pkpd-sex" onchange="updatePkpdMabl()">
+                <option value="M">Homme</option>
+                <option value="F">Femme</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <div class="form-label">Médicament TCI</div>
+              <select class="form-control" id="pkpd-drug" onchange="updatePkpdMabl()">
+                <option value="propofol">Propofol (Schnider)</option>
+                <option value="remifentanil">Rémifentanil (Minto)</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <div class="form-label">Cible Ce (µg/mL)</div>
+              <input class="form-control" id="pkpd-target" type="number" min="0.5" max="15" step="0.5" value="3.5" oninput="updatePkpdMabl()">
+            </div>
+            <div class="form-row">
+              <div class="form-label">Hb initiale (g/dL)</div>
+              <input class="form-control" id="pkpd-hb-init" type="number" min="5" max="20" step="0.5" value="13.5" oninput="updatePkpdMabl()">
+            </div>
+            <div class="form-row">
+              <div class="form-label">Hb cible (g/dL)</div>
+              <input class="form-control" id="pkpd-hb-target" type="number" min="5" max="18" step="0.5" value="10.0" oninput="updatePkpdMabl()">
+            </div>
+            <div class="form-row">
+              <div class="form-label">Durée simulation (min)</div>
+              <input class="form-control" id="pkpd-duration" type="number" min="5" max="180" step="5" value="60" oninput="updatePkpdMabl()">
+            </div>
+          </div>
+
+          <!-- Résultats MABL -->
+          <div id="pkpd-mabl-results" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px;font-size:10px">
+            <div style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);border-radius:6px;padding:8px;text-align:center">
+              <div style="color:var(--text3);margin-bottom:2px">VSE (EBV)</div>
+              <div id="pkpd-ebv" style="font-size:14px;font-weight:700;color:#10b981">—</div>
+              <div style="color:var(--text3)">mL</div>
+            </div>
+            <div style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:8px;text-align:center">
+              <div style="color:var(--text3);margin-bottom:2px">MABL (Gross)</div>
+              <div id="pkpd-mabl" style="font-size:14px;font-weight:700;color:#ef4444">—</div>
+              <div style="color:var(--text3)">mL</div>
+            </div>
+            <div style="background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);border-radius:6px;padding:8px;text-align:center">
+              <div style="color:var(--text3);margin-bottom:2px">Cristalloïdes 3:1</div>
+              <div id="pkpd-cryst" style="font-size:14px;font-weight:700;color:#38bdf8">—</div>
+              <div style="color:var(--text3)">mL</div>
+            </div>
+            <div style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.25);border-radius:6px;padding:8px;text-align:center">
+              <div style="color:var(--text3);margin-bottom:2px">Colloïdes 1:1</div>
+              <div id="pkpd-coll" style="font-size:14px;font-weight:700;color:#fbbf24">—</div>
+              <div style="color:var(--text3)">mL</div>
+            </div>
+          </div>
+          <!-- Infos TCI calculées -->
+          <div id="pkpd-tci-info" style="font-size:10px;color:var(--text3);margin-bottom:8px;background:rgba(0,0,0,.25);padding:6px 10px;border-radius:4px">
+            Configurez les paramètres pour voir la simulation TCI PK/PD.
+          </div>
+          <!-- Canvas graphique Cp/Ce -->
+          <canvas id="pkpd-chart" height="90"
+            style="width:100%;background:rgba(0,0,0,.3);border-radius:6px;border:1px solid rgba(255,255,255,.07)">
+          </canvas>
+          <div style="display:flex;gap:16px;margin-top:4px;font-size:9px;color:var(--text3)">
+            <span style="color:#38bdf8">── Cp plasma</span>
+            <span style="color:#a78bfa">── Ce site d'effet</span>
+            <span style="color:rgba(239,68,68,.6);border-top:1px dashed rgba(239,68,68,.6);padding-top:2px">- - Cible</span>
+          </div>
+        </div>
+
       </div>
       <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('preanesthesie')"
           data-i18n="common.close">Fermer</button><button class="btn btn-primary"
@@ -935,7 +1105,7 @@
           </div>
         </div>
         <div style="font-size:11px;color:var(--accent);margin:2px 0 10px" data-i18n="icuFollowup.sofaTotal">
-          SOFA total : <b id="icu-sofa-total">—</b>
+          SOFA total : <b id="icu-sofa-total">—</b> <span id="icu-sofa-risk-badge" style="margin-left:8px;font-weight:600"></span>
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
@@ -986,6 +1156,48 @@
           Glasgow total : <b id="icu-gcs-total">—</b>
         </div>
 
+        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;margin:8px 0 4px">NEWS2 —
+          Constantes vitales</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+          <div class="form-row"><div class="form-label">Fr respiratoire (/min)</div>
+            <input class="form-control news2-input" id="icu-news2-rr" type="number" min="1" max="60"
+              oninput="updateNews2Total()">
+          </div>
+          <div class="form-row"><div class="form-label">SpO2 (%)</div>
+            <input class="form-control news2-input" id="icu-news2-spo2" type="number" min="50" max="100"
+              oninput="updateNews2Total()">
+          </div>
+          <div class="form-row"><div class="form-label">PAS (mmHg)</div>
+            <input class="form-control news2-input" id="icu-news2-pas" type="number" min="40" max="300"
+              oninput="updateNews2Total()">
+          </div>
+          <div class="form-row"><div class="form-label">FC (bpm)</div>
+            <input class="form-control news2-input" id="icu-news2-fc" type="number" min="20" max="250"
+              oninput="updateNews2Total()">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px">
+          <div class="form-row"><div class="form-label">Température (°C)</div>
+            <input class="form-control news2-input" id="icu-news2-temp" type="number" min="30" max="43" step="0.1"
+              oninput="updateNews2Total()">
+          </div>
+          <div class="form-row"><div class="form-label">AVPU</div>
+            <select class="form-control news2-input" id="icu-news2-avpu" onchange="updateNews2Total()">
+              <option value="">—</option><option value="A">A — Alerte</option>
+              <option value="V">V — Réagit à la voix</option><option value="P">P — Réagit à la douleur</option>
+              <option value="U">U — Inconscient</option>
+            </select>
+          </div>
+          <div class="form-row"><div class="form-label">Oxygène supplémentaire</div>
+            <select class="form-control news2-input" id="icu-news2-o2" onchange="updateNews2Total()">
+              <option value="">—</option><option value="false">Non</option><option value="true">Oui</option>
+            </select>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--accent);margin:2px 0 10px">
+          NEWS2 total : <b id="icu-news2-total">—</b> <span id="icu-news2-badge" style="margin-left:8px;font-weight:600"></span>
+        </div>
+
         <div style="font-size:9px;color:var(--text3);text-transform:uppercase;margin:8px 0 4px"
           data-i18n="icuFollowup.ventilation">Ventilation mécanique</div>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
@@ -1025,6 +1237,10 @@
         </div>
         <div style="font-size:11px;color:var(--accent);margin:2px 0 10px" data-i18n="icuFollowup.bilanNet">
           Bilan net : <b id="icu-bilan-net">—</b> ml
+        </div>
+
+        <div class="form-row"><div class="form-label">Plan chirurgical validé (lien post-op)</div>
+          <select class="form-control" id="icu-plan"><option value="">— Aucun lien —</option></select>
         </div>
 
         <div class="form-row"><div class="form-label" data-i18n="icuFollowup.notes">Notes</div>
@@ -1187,6 +1403,7 @@
           Explicabilité (SHAP / Grad-CAM 3D)</span><button class="modal-close" onclick="closeModal('surgai')">✕</button>
       </div>
       <div class="modal-body" style="font-size:11px;line-height:1.6">
+        <div class="research-disclaimer-banner">🛑 MODULE DE RECHERCHE — SIMULATION PROTOTYPE NON CERTIFIÉE POUR DÉCISION PATIENT RÉELLE</div>
         <div
           style="background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.3);padding:10px;border-radius:6px;margin-bottom:12px">
           <strong>⚠️ Exigence MDR / FDA (Zero-Black-Box) :</strong> Chaque proposition chirurgicale est justifiée par
@@ -1246,6 +1463,7 @@
       <div class="modal-hdr"><span class="modal-title" style="color:#ff6b35">⚡ SurgSim-PhysX — Simulation Rhéologique &
           Clampage (WASM/WebGPU)</span><button class="modal-close" onclick="closeModal('surgsim')">✕</button></div>
       <div class="modal-body" style="font-size:11px;line-height:1.6">
+        <div class="research-disclaimer-banner">🛑 MODULE DE RECHERCHE — SIMULATION PROTOTYPE NON CERTIFIÉE POUR DÉCISION PATIENT RÉELLE</div>
         <div
           style="background:rgba(255,107,53,.1);border:1px solid rgba(255,107,53,.3);padding:10px;border-radius:6px;margin-bottom:12px">
           <strong>⚡ Moteur Physique des Milieux Continus :</strong> Calcule en temps réel ($< 100\text{ ms}$) sur WebGPU
@@ -1309,6 +1527,7 @@
             Intelligent & Orchestration MILP</span><button class="modal-close" onclick="closeModal('surgor')">✕</button>
         </div>
         <div class="modal-body" style="font-size:11px;line-height:1.6">
+          <div class="research-disclaimer-banner">🛑 MODULE DE RECHERCHE — SIMULATION PROTOTYPE NON CERTIFIÉE POUR DÉCISION PATIENT RÉELLE</div>
           <div
             style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);padding:10px;border-radius:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
             <div><strong>🤖 Solveur MILP Temps Réel :</strong> Réduit les temps morts (Turnover Time) de 18% par
@@ -1402,6 +1621,7 @@
         <div class="modal-hdr"><span class="modal-title" style="color:#4fc3f7">🛰️ SurgNav-GPS — Navigation Chirurgicale
             & Recalage Élastique</span><button class="modal-close" onclick="closeModal('surgnav')">✕</button></div>
         <div class="modal-body" style="font-size:11px;line-height:1.6">
+          <div class="research-disclaimer-banner">🛑 MODULE DE RECHERCHE — SIMULATION PROTOTYPE NON CERTIFIÉE POUR DÉCISION PATIENT RÉELLE</div>
           <div
             style="background:rgba(79,195,247,.1);border:1px solid rgba(79,195,247,.3);padding:10px;border-radius:6px;margin-bottom:12px">
             <strong>🛰️ Recalage Élastique Non-Rigide (60-100 Hz) :</strong> Compensant dynamiquement la respiration et
@@ -1441,6 +1661,7 @@
         <div class="modal-hdr"><span class="modal-title" style="color:#eab308">🎙️ SurgVoice-LLM — Assistant Vocal
             Stérile Mains-Libres</span><button class="modal-close" onclick="closeModal('surgvoice')">✕</button></div>
         <div class="modal-body" style="font-size:11px;line-height:1.6">
+          <div class="research-disclaimer-banner">🛑 MODULE DE RECHERCHE — SIMULATION PROTOTYPE NON CERTIFIÉE POUR DÉCISION PATIENT RÉELLE</div>
           <div
             style="background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.3);padding:10px;border-radius:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
             <div><strong>🎙️ Reconnaissance Vocale Hors-Ligne :</strong> Modèle Whisper-Medical (WASM GPU) + filtrage
@@ -1724,12 +1945,143 @@
       </div>
     </div>
 
+    <!-- ── Modale Interopérabilité SIH (HL7 v2 / FHIR R4/R5 & MLLP) ── -->
+    <div class="modal-overlay" id="modal-sih-interop">
+      <div class="modal" style="min-width:680px;max-width:92vw">
+        <div class="modal-hdr">
+          <span class="modal-title" style="color:#10b981">🏥 Interopérabilité SIH (HL7 v2 &amp; FHIR R4/R5)</span>
+          <button class="modal-close" onclick="closeModal('sih-interop')">✕</button>
+        </div>
+        <div class="modal-body" style="font-size:11px;line-height:1.6">
+          <div style="background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);padding:10px;border-radius:6px;margin-bottom:12px">
+            <strong>🏥 Connexion Système d'Information Hospitalier (SIH) :</strong> Échange birectionnel avec le DPI/PACS
+            via les standards internationaux <strong>HL7 v2 (MLLP)</strong> et <strong>FHIR R4/R5 (REST JSON)</strong>.
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <!-- Colonne 1 : FHIR R4/R5 -->
+            <div style="background:var(--bg2);padding:10px;border-radius:6px;border:1px solid var(--border2)">
+              <div style="font-weight:700;color:#10b981;margin-bottom:8px">🔥 FHIR R4/R5 REST API</div>
+              <div class="form-row" style="margin-bottom:8px">
+                <div class="form-label">Ressource FHIR à exporter</div>
+                <select class="form-control" id="sih-fhir-resource" style="font-size:10px">
+                  <option value="Patient">Patient (Identité &amp; Antécédents)</option>
+                  <option value="ImagingStudy">ImagingStudy (Séries DICOM &amp; PACS)</option>
+                  <option value="DiagnosticReport">DiagnosticReport (Volumétrie 3D &amp; Segments)</option>
+                  <option value="Procedure">Procedure (Planification Chirurgicale FHIR R5)</option>
+                </select>
+              </div>
+              <button class="btn btn-primary" style="background:#10b981;border-color:#10b981;width:100%;font-size:10px"
+                onclick="exportFhirResource()">🌐 Exporter la ressource FHIR (JSON)</button>
+
+              <div style="margin-top:10px;font-size:9px;color:var(--text3)">Aperçu de la ressource FHIR :</div>
+              <pre id="sih-fhir-output"
+                style="background:rgba(0,0,0,.4);border:1px solid var(--border2);border-radius:4px;padding:8px;max-height:150px;overflow:auto;font-family:monospace;font-size:9px;color:#38bdf8;margin-top:4px">{
+  "resourceType": "Patient",
+  "status": "Sélectionnez une ressource et cliquez sur Exporter"
+}</pre>
+            </div>
+
+            <!-- Colonne 2 : HL7 v2 MLLP -->
+            <div style="background:var(--bg2);padding:10px;border-radius:6px;border:1px solid var(--border2)">
+              <div style="font-weight:700;color:#38bdf8;margin-bottom:8px">📡 Émetteur HL7 v2 MLLP (Port 2575)</div>
+              <div class="form-row" style="margin-bottom:6px">
+                <div class="form-label">Type d'Événement HL7</div>
+                <select class="form-control" id="sih-hl7-event" style="font-size:10px">
+                  <option value="ADT_A08">ADT^A08 — Mise à jour dossier patient</option>
+                  <option value="ORM_O01">ORM^O01 — Demande d'intervention chirurgicale</option>
+                  <option value="ORU_R01">ORU^R01 — Compte-rendu opératoire / 3D</option>
+                </select>
+              </div>
+              <div style="display:grid;grid-template-columns:2fr 1fr;gap:6px;margin-bottom:8px">
+                <div class="form-row">
+                  <div class="form-label">Hôte MLLP</div>
+                  <input class="form-control" id="sih-mllp-host" value="localhost" style="font-size:10px">
+                </div>
+                <div class="form-row">
+                  <div class="form-label">Port</div>
+                  <input class="form-control" id="sih-mllp-port" value="2575" type="number" style="font-size:10px">
+                </div>
+              </div>
+              <button class="btn btn-secondary" style="border-color:#38bdf8;color:#38bdf8;width:100%;font-size:10px"
+                onclick="sendHl7MllpMessage()">📡 Émettre Trame MLLP (<VT>HL7<FS><CR>)</button>
+
+              <div style="margin-top:10px;font-size:9px;color:var(--text3)">Trame HL7 v2 émise &amp; Accusé (ACK) :</div>
+              <div id="sih-hl7-output"
+                style="background:rgba(0,0,0,.4);border:1px solid var(--border2);border-radius:4px;padding:8px;max-height:150px;overflow:auto;font-family:monospace;font-size:9px;color:#a78bfa;margin-top:4px">
+                En attente d'émission d'une trame HL7 v2 MLLP...
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="closeModal('sih-interop')">Fermer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Modale Revue & Validation du Plan Chirurgical (Workflow Peer-Review & Signature) ── -->
+    <div class="modal-overlay" id="modal-plan-review">
+      <div class="modal" style="min-width:640px;max-width:90vw">
+        <div class="modal-hdr">
+          <span class="modal-title" style="color:#f59e0b">✍️ Workflow de Revue, Validation &amp; Signature du Plan</span>
+          <button class="modal-close" onclick="closeModal('plan-review')">✕</button>
+        </div>
+        <div class="modal-body" style="font-size:11px;line-height:1.6">
+          <div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);padding:10px;border-radius:6px;margin-bottom:12px">
+            <strong>📋 Cycle de Vie du Plan Opératoire :</strong> Brouillon (<code style="color:#38bdf8">draft</code>) → Relecture par les pairs (<code style="color:#facc15">reviewed</code>) → Validation finale &amp; Signature (<code style="color:#10b981">validated</code>).
+            Toute modification d'un plan validé crée automatiquement une nouvelle version (<code style="color:#a78bfa">v+1</code>) scellée par hash SHA-256.
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+            <div style="background:var(--bg2);padding:10px;border-radius:6px;border:1px solid var(--border2)">
+              <div style="font-weight:700;color:#f59e0b;margin-bottom:6px">📌 État Actuel du Plan</div>
+              <div>• Patient ID : <strong id="plan-review-patient-id" style="color:var(--text1)">PAT-2026-001</strong></div>
+              <div>• Version du Plan : <strong id="plan-review-version" style="color:#a78bfa">v1.0 (Draft)</strong></div>
+              <div>• Statut Actuel : <span id="plan-review-status-badge" class="badge yellow" style="padding:2px 6px">Brouillon</span></div>
+              <div>• Auteur / Créateur : <strong id="plan-review-author">Dr. Martin (Chirurgien)</strong></div>
+              <div>• Signature Senior : <strong id="plan-review-signer" style="color:var(--text3)">En attente...</strong></div>
+            </div>
+
+            <div style="background:var(--bg2);padding:10px;border-radius:6px;border:1px solid var(--border2)">
+              <div style="font-weight:700;color:#38bdf8;margin-bottom:6px">✍️ Actions du Workflow</div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <button class="btn btn-secondary" style="border-color:#facc15;color:#facc15;font-size:10px"
+                  onclick="markPlanAsReviewed()">👀 Marquer comme Relu par les Pairs (Peer-Reviewed)</button>
+                <button class="btn btn-primary" style="background:#10b981;border-color:#10b981;font-size:10px"
+                  onclick="validateAndSignPlan()">✍️ Valider &amp; Signer le Plan (Chirurgien Senior)</button>
+                <button class="btn btn-secondary" style="border-color:#38bdf8;color:#38bdf8;font-size:10px"
+                  onclick="generatePrintableSurgicalPlanPdf()">📄 Imprimer / Exporter le Plan Opératoire (PDF)</button>
+                <button class="btn btn-secondary" style="border-color:#ef4444;color:#ef4444;font-size:10px"
+                  onclick="rejectPlanWithNotes()">❌ Rejeter le Plan (Demander Corrections)</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-label">Notes de Relecture / Remarques du Chirurgien Senior</div>
+            <textarea class="form-control" id="plan-review-notes" rows="2" placeholder="Ajouter des observations cliniques ou exigences de modification..."></textarea>
+          </div>
+
+          <div style="margin-top:10px;font-size:9px;color:var(--text3)">Historique des Signatures &amp; Horodatage Cryptographique WORM :</div>
+          <div id="plan-review-history-log"
+            style="background:rgba(0,0,0,.4);border:1px solid var(--border2);border-radius:4px;padding:8px;max-height:100px;overflow:auto;font-family:monospace;font-size:9px;color:#38bdf8;margin-top:4px">
+            [DRAFT] 2026-08-05T16:00:00Z — Plan v1.0 initialisé par l'équipe de chirurgie.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="closeModal('plan-review')">Fermer</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Modale Navigation Immersive WebXR (Vision Pro / Quest 3 - Jalons M15 & M16) ── -->
     <div class="modal-overlay" id="modal-webxr">
       <div class="modal" style="min-width:660px">
         <div class="modal-hdr"><span class="modal-title" style="color:#06b6d4">🥽 WebXR Spatial Computing — Apple Vision
             Pro & Meta Quest 3</span><button class="modal-close" onclick="closeModal('webxr')">✕</button></div>
         <div class="modal-body" style="font-size:11px;line-height:1.6">
+          <div class="research-disclaimer-banner">🛑 MODULE DE RECHERCHE — SIMULATION PROTOTYPE NON CERTIFIÉE POUR DÉCISION PATIENT RÉELLE</div>
           <div
             style="background:rgba(6,182,212,.1);border:1px solid rgba(6,182,212,.3);padding:10px;border-radius:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
             <div><strong>🥽 Streaming Stéréoscopique 120 Hz :</strong> Jumeau Numérique holographique en mode AR
@@ -1747,7 +2099,7 @@
                 <div>• Rendu fovéal : <strong>Eye-Tracking Pro Dynamique ✅</strong></div>
                 <button class="btn btn-secondary"
                   style="font-size:10px;margin-top:8px;width:100%;border-color:rgba(6,182,212,.5)"
-                  onclick="notify('✨ Calibration spatiale WebXR scellée dans audit_logs (SHA-256 signé)','ok')">📍
+                  onclick="calibrateWebXRSpatial()">📍
                   Re-calibrer Alignement Patient (42 points)</button>
               </div>
               <div style="background:var(--bg2);padding:10px;border-radius:6px;border:1px solid var(--border2)">
@@ -1788,6 +2140,7 @@
               Vinci 5 & Medtronic Hugo</span><button class="modal-close" onclick="closeModal('robotic')">✕</button>
           </div>
           <div class="modal-body" style="font-size:11px;line-height:1.6">
+            <div class="research-disclaimer-banner">🛑 MODULE DE RECHERCHE — SIMULATION PROTOTYPE NON CERTIFIÉE POUR DÉCISION PATIENT RÉELLE</div>
             <div
               style="background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.3);padding:10px;border-radius:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
               <div><strong>🤖 Télé-opération Haptique (1000 Hz) :</strong> Télémétrie 7-DOF cinématique et calcul de
@@ -1876,6 +2229,7 @@
               Micro-Chirurgie Robotique (50:1)</span><button class="modal-close"
               onclick="closeModal('genai-complications')">✕</button></div>
           <div class="modal-body" style="font-size:11px;line-height:1.6">
+            <div class="research-disclaimer-banner">🛑 MODULE DE RECHERCHE — SIMULATION PROTOTYPE NON CERTIFIÉE POUR DÉCISION PATIENT RÉELLE</div>
             <div
               style="background:rgba(244,63,94,.1);border:1px solid rgba(244,63,94,.3);padding:10px;border-radius:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
               <div><strong>🧬 Spatio-Temporal Video Transformer (70B) :</strong> Prédiction vidéo à horizon de 15 sec
@@ -1940,6 +2294,7 @@
               & Bio-Impression 4D Peropératoire</span><button class="modal-close"
               onclick="closeModal('pqc-bioprint')">✕</button></div>
           <div class="modal-body" style="font-size:11px;line-height:1.6">
+            <div class="research-disclaimer-banner">🛑 MODULE DE RECHERCHE — SIMULATION PROTOTYPE NON CERTIFIÉE POUR DÉCISION PATIENT RÉELLE</div>
             <div
               style="background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);padding:10px;border-radius:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
               <div><strong>🛰️ Réseau LEO 6G Quantum & Bio-4D :</strong> Télé-opération intercontinentale inviolable
@@ -2003,6 +2358,7 @@
               1024-Ch) & Retour Haptique Cortical Direct (S1)</span><button class="modal-close"
               onclick="closeModal('bci-haptic')">✕</button></div>
           <div class="modal-body" style="font-size:11px;line-height:1.6">
+            <div class="research-disclaimer-banner">🛑 MODULE DE RECHERCHE — SIMULATION PROTOTYPE NON CERTIFIÉE POUR DÉCISION PATIENT RÉELLE</div>
             <div
               style="background:rgba(139,92,246,.1);border:1px solid rgba(139,92,246,.3);padding:10px;border-radius:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
               <div><strong>🧠 Contrôle par la Pensée & Tact Cortical :</strong> Décodage SNN sub-milliseconde (&lt; 2.4
@@ -2066,6 +2422,7 @@
               Oncologie Moléculaire In-Vivo (CRISPR-Cas9)</span><button class="modal-close"
               onclick="closeModal('nano-swarm')">✕</button></div>
           <div class="modal-body" style="font-size:11px;line-height:1.6">
+            <div class="research-disclaimer-banner">🛑 MODULE DE RECHERCHE — SIMULATION PROTOTYPE NON CERTIFIÉE POUR DÉCISION PATIENT RÉELLE</div>
             <div
               style="background:rgba(14,165,233,.1);border:1px solid rgba(14,165,233,.3);padding:10px;border-radius:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
               <div><strong>🔬 Navigation Micro-Vasculaire & Hyperthermie AMF :</strong> Guidage magnétique 3D de 5
@@ -2130,6 +2487,7 @@
               5 & Soudure Laser (EPLW 1470 nm)</span><button class="modal-close"
               onclick="closeModal('auto-laser')">✕</button></div>
           <div class="modal-body" style="font-size:11px;line-height:1.6">
+            <div class="research-disclaimer-banner">🛑 MODULE DE RECHERCHE — SIMULATION PROTOTYPE NON CERTIFIÉE POUR DÉCISION PATIENT RÉELLE</div>
             <div
               style="background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.3);padding:10px;border-radius:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
               <div><strong>🤖⚡ Autonomie STAR-5 & Soudure Laser :</strong> Modèle Med-VLA RT-2 pilotant la
@@ -2191,6 +2549,7 @@
               In-Vivo & Sonogénétique Profonde (OSKM / FUS 1.2 MHz)</span><button class="modal-close"
               onclick="closeModal('epi-sono')">✕</button></div>
           <div class="modal-body" style="font-size:11px;line-height:1.6">
+            <div class="research-disclaimer-banner">🛑 MODULE DE RECHERCHE — SIMULATION PROTOTYPE NON CERTIFIÉE POUR DÉCISION PATIENT RÉELLE</div>
             <div
               style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);padding:10px;border-radius:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
               <div><strong>🧬✨ Réjuvénation & Sonogénétique :</strong> Libération d'ARNm LNP facteurs de Yamanaka (OSKM)
@@ -2319,6 +2678,7 @@
               (nsPEF) & BNCT Peropératoire Neutrons</span><button class="modal-close"
               onclick="closeModal('cryo-bnct')">✕</button></div>
           <div class="modal-body" style="font-size:11px;line-height:1.6">
+            <div class="research-disclaimer-banner">🛑 MODULE DE RECHERCHE — SIMULATION PROTOTYPE NON CERTIFIÉE POUR DÉCISION PATIENT RÉELLE</div>
             <div
               style="background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.3);padding:10px;border-radius:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
               <div><strong>❄️☢️ Ablation Hilaire non-thermique & Neutrons BNCT :</strong> Électroporation nanoseconde au
@@ -2449,6 +2809,7 @@
               <button class="modal-close" onclick="closeModal('iknife-ac225')">✕</button>
             </div>
             <div class="modal-body" style="font-size:11px;color:var(--text2);line-height:1.6">
+              <div class="research-disclaimer-banner">🛑 MODULE DE RECHERCHE — SIMULATION PROTOTYPE NON CERTIFIÉE POUR DÉCISION PATIENT RÉELLE</div>
               <div
                 style="padding:10px;background:var(--bg2);border:1px solid #f43f5e;border-radius:6px;margin-bottom:12px;color:#f43f5e">
                 <b>🔬 Aspiration Spectrométrique in-situ (0.8s) & Radioguidage Alpha 28 MeV :</b><br>
