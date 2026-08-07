@@ -54,6 +54,39 @@ def test_pkpd_remifentanil_simulation():
     assert data["unit"] == "ng/mL"
 
 
+def _simulate(age, weight, height, sex, drug="propofol", target=4.0, duration=5):
+    payload = {
+        "patient": {"age": age, "weight_kg": weight, "height_cm": height, "sex": sex},
+        "drug": drug,
+        "target_concentration_ug_ml": target,
+        "duration_minutes": duration,
+    }
+    r = client.post("/anesthesia/simulate-pkpd", json=payload)
+    assert r.status_code == 200
+    return r.json()
+
+
+def test_pkpd_curve_is_patient_specific_not_a_universal_constant():
+    """Avant correctif, Cp montait vers la cible avec une constante universelle (0.8/min)
+    identique pour tout patient/médicament, sans lien avec CL1/V1 pourtant calculés et
+    publiés dans la réponse. Deux patients très différents doivent désormais produire des
+    courbes différentes (k10 = CL1/V1 propre à chacun)."""
+    young = _simulate(25, 60.0, 165.0, "F")
+    elderly = _simulate(85, 110.0, 190.0, "M")
+    assert young["time_series"][2]["cp_plasma"] != elderly["time_series"][2]["cp_plasma"]
+
+
+def test_pkpd_curve_converges_to_target_at_steady_state():
+    data = _simulate(40, 70.0, 170.0, "M", target=3.0, duration=60)
+    assert abs(data["time_series"][-1]["cp_plasma"] - 3.0) < 0.05
+    assert abs(data["time_series"][-1]["ce_effect_site"] - 3.0) < 0.05
+
+
+def test_pkpd_response_documents_model_limitations():
+    data = _simulate(40, 70.0, 170.0, "M")
+    assert "note" in data and "TCI" in data["note"] and "certifiée" in data["note"].lower()
+
+
 def test_allowable_blood_loss():
     payload = {
         "patient": {

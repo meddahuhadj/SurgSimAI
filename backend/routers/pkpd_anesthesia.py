@@ -9,8 +9,7 @@ Modèles implémentés :
 - Volume sanguin estimé (EBV) & Perte Sanguine Autorisée (MABL)
 """
 
-import math
-from typing import List, Optional
+from typing import List
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -52,6 +51,10 @@ class PKPDSimulationResponse(BaseModel):
     v2_liters: float
     v3_liters: float
     maintenance_rate_mg_h: float
+    note: str = Field(
+        ...,
+        description="Limites du modèle de courbe Cp/Ce — à lire avant toute interprétation clinique.",
+    )
 
 
 class BloodLossCalculationRequest(BaseModel):
@@ -79,6 +82,40 @@ def calculate_lbm(weight_kg: float, height_cm: float, sex: str, age: float) -> f
     else:
         lbm = (9270 * weight_kg) / (8780 + 244 * bmi)
     return max(20.0, min(lbm, weight_kg))
+
+
+PKPD_CURVE_NOTE = (
+    "Simplification assumée : Cp est modélisée par une approche mono-exponentielle vers la "
+    "cible, au taux d'élimination k10 = CL1/V1 PROPRE à ce patient et à ce médicament (et non "
+    "une constante identique pour tout le monde). Ce est ensuite dérivée de Cp via l'équation "
+    "de site d'effet standard dCe/dt = ke0*(Cp-Ce). Ce modèle N'IMPLÉMENTE PAS l'algorithme "
+    "bolus + perfusion décroissante d'une vraie pompe TCI (Shafer & Gregg, 1992) ni la "
+    "redistribution inter-compartimentale complète (V2/V3 sont affichés à titre informatif, "
+    "littérature Schnider/Minto, mais n'influencent pas cette courbe) : la montée réelle "
+    "observée sous une pompe TCI certifiée peut différer significativement, surtout dans les "
+    "premières minutes. Ne jamais utiliser cette courbe comme un profil de perfusion réel — "
+    "aide à la décision non certifiée, à valider systématiquement par un anesthésiste."
+)
+
+
+def _simulate_concentration_curve(target: float, k10: float, ke0: float, duration_minutes: int,
+                                   substeps_per_min: int = 20) -> List[tuple]:
+    """Intègre numériquement (Euler, pas fin) la montée de Cp vers `target` au taux `k10`
+    propre au patient/médicament, puis Ce via dCe/dt = ke0*(Cp-Ce). Voir PKPD_CURVE_NOTE
+    pour les limites de cette simplification par rapport à un vrai contrôleur TCI."""
+    dt = 1.0 / substeps_per_min
+    cp, ce = 0.0, 0.0
+    points = [(0, 0.0, 0.0)]
+    substep_count = 0
+    minute = 0
+    for _ in range(duration_minutes * substeps_per_min):
+        cp += k10 * (target - cp) * dt
+        ce += ke0 * (cp - ce) * dt
+        substep_count += 1
+        if substep_count % substeps_per_min == 0:
+            minute += 1
+            points.append((minute, cp, ce))
+    return points
 
 
 @router.post("/simulate-pkpd", response_model=PKPDSimulationResponse)
@@ -113,23 +150,18 @@ async def simulate_pkpd(req: PKPDSimulationRequest):
     else:
         raise HTTPException(400, "Médicament non supporté. Choisissez 'propofol' ou 'remifentanil'.")
 
-    # Simulation temporelle analytique (approche d'accumulation exponentielle vers l'équilibre)
-    points: List[ConcentrationTimePoint] = []
+    # Montée de Cp vers la cible au taux d'élimination k10 = CL1/V1 propre à CE patient et
+    # CE médicament (auparavant une constante universelle 0.8/min, identique pour tout le
+    # monde, sans lien avec cl1/v1 pourtant calculés juste au-dessus et publiés dans la
+    # réponse — incohérence corrigée ici). Voir PKPD_CURVE_NOTE pour les limites restantes.
     duration = req.duration_minutes
     target = req.target_concentration_ug_ml
+    k10 = cl1 / v1
 
-    for t in range(0, duration + 1, 1):
-        # Simulation d'une montée vers la cible par perfusion guidée TCI
-        # Cp monte rapidement et se stabilise
-        cp = target * (1.0 - math.exp(-0.8 * t))
-        # Ce suit Cp avec un délai lié à ke0
-        ce = target * (1.0 - math.exp(-ke0 * t * 0.75))
-
-        points.append(ConcentrationTimePoint(
-            time_min=float(t),
-            cp_plasma=round(cp, 3),
-            ce_effect_site=round(ce, 3)
-        ))
+    points: List[ConcentrationTimePoint] = [
+        ConcentrationTimePoint(time_min=float(t), cp_plasma=round(cp, 3), ce_effect_site=round(ce, 3))
+        for (t, cp, ce) in _simulate_concentration_curve(target, k10, ke0, duration)
+    ]
 
     return PKPDSimulationResponse(
         drug=drug,
@@ -140,7 +172,8 @@ async def simulate_pkpd(req: PKPDSimulationRequest):
         v1_liters=round(v1, 2),
         v2_liters=round(v2, 2),
         v3_liters=round(v3, 2),
-        maintenance_rate_mg_h=round(maint_rate, 2)
+        maintenance_rate_mg_h=round(maint_rate, 2),
+        note=PKPD_CURVE_NOTE,
     )
 
 

@@ -2596,11 +2596,22 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             const W = canvas.width, H = canvas.height;
+            // Même modèle que le backend (routers/pkpd_anesthesia.py, PKPD_CURVE_NOTE) : Cp
+            // monte vers la cible au taux d'élimination k10 = CL1/V1 PROPRE à ce patient et ce
+            // médicament (et non une constante universelle 0.8/min identique pour tout le
+            // monde comme avant), Ce dérivée via dCe/dt = ke0*(Cp-Ce). Simplification qui
+            // ignore la redistribution inter-compartimentale et l'algorithme bolus+décroissance
+            // d'une vraie pompe TCI — voir l'avertissement affiché sous le graphique.
+            const k10 = cl1 / v1;
+            const substepsPerMin = 20, dtSim = 1 / substepsPerMin;
             const pts = [];
+            let cpSim = 0, ceSim = 0;
             for (let t = 0; t <= dur; t++) {
-              const cp = target * (1 - Math.exp(-0.8 * t));
-              const ce = target * (1 - Math.exp(-ke0 * t * 0.75));
-              pts.push({ t, cp, ce });
+              pts.push({ t, cp: cpSim, ce: ceSim });
+              for (let s = 0; s < substepsPerMin; s++) {
+                cpSim += k10 * (target - cpSim) * dtSim;
+                ceSim += ke0 * (cpSim - ceSim) * dtSim;
+              }
             }
 
             const maxC = target * 1.08;
