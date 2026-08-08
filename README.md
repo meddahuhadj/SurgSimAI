@@ -135,9 +135,17 @@ renseignez :
 ### Testé de bout en bout dans ce sandbox
 Login → création patient → volumétrie → activation 2FA complète (setup + code TOTP réel
 généré via `pyotp` + enable) → connexion exigeant la 2FA → vérification du code → audit
-trail peuplé à chaque étape → migration Alembic (upgrade + downgrade) validée sur SQLite.
-La logique est donc vérifiée ; seul un test contre un vrai PostgreSQL reste à faire côté
-utilisateur (`docker compose up -d db`).
+trail peuplé à chaque étape → cycle Alembic complet `upgrade head` → `downgrade base` →
+`upgrade head` **validé contre un vrai PostgreSQL** (image `pgvector/pgvector:pg16`,
+identique à celle de `docker-compose.yml`), pas seulement SQLite — ce test a révélé et
+corrigé un bug réel : la migration `b2f3d4e5f6a7` tentait de `DROP TABLE surgical_plans`
+dans sa `downgrade()` alors que cette table est depuis prise en charge par la migration
+`e5f6a7b8c9d0`, qui la supprime déjà elle-même en premier — invisible sur SQLite, où ce
+genre d'erreur de séquence peut passer inaperçu. La suite pytest complète (277 tests)
+passe aussi intégralement contre ce même PostgreSQL réel (pas seulement contre le SQLite
+temporaire par défaut des tests), en pointant `DATABASE_URL` dessus avant de lancer
+`pytest` — la logique ORM (JSON, clés étrangères, cascades) est donc vérifiée sur le
+moteur de production, pas seulement sur SQLite.
 
 ### ⚠️ Avant toute mise en production réelle
 Mise à jour : les 3 premiers points ci-dessous sont maintenant **imposés par le code

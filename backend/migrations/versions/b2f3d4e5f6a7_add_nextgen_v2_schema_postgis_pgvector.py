@@ -90,6 +90,15 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # NOTE (bug corrigé) : cette fonction tentait aussi de DROP la table
+    # surgical_plans créée ci-dessus par upgrade(). Mais la migration e5f6a7b8c9d0
+    # a depuis remplacé cette table par un nouveau schéma (cycle draft/reviewed/
+    # validated/rejected) et gère elle-même son propre drop_table('surgical_plans')
+    # dans sa upgrade() (avant de la recréer) — donc au moment où CETTE downgrade()
+    # s'exécute dans un `alembic downgrade base` complet, la table surgical_plans a
+    # déjà été supprimée par la downgrade de e5f6a7b8c9d0 et n'existe plus : le
+    # drop_table ici levait `UndefinedTable`, jamais détecté faute d'avoir testé
+    # le cycle upgrade/downgrade sur un vrai PostgreSQL (validé seulement sur
+    # SQLite auparavant, où ce genre d'erreur de séquence peut passer inaperçu).
     op.drop_table('audit_logs')
-    op.drop_table('surgical_plans')
     op.drop_table('digital_twins')
