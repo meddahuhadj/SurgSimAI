@@ -400,7 +400,7 @@
               hubProcs: ['CABG', 'TAVI chirurgical', 'Réparation mitrale', 'Remplacement Ao']
             },
             urologie: {
-              id: 'urologie', name: 'Chirurgie Urologique', short: 'Urologie', icon: '🫘',
+              id: 'urologie', name: 'Chirurgie Urologique', short: 'Urologie', icon: '🧫',
               color: '#14b8a6', colorRgb: '20,184,166',
               desc: 'Planification de néphrectomies, prostatectomies et cystectomies avec cartographie PI-RADS et score RENAL.',
               procedures: ['Néphrectomie partielle', 'Néphrectomie totale élargie', 'Prostatectomie radicale', 'Cystectomie radicale + dérivation', 'Urétéroscopie / NLPC'],
