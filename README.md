@@ -100,6 +100,12 @@ renseignez :
   `DATABASE_URL` (PostgreSQL) pour la persistance réelle.
 - L'anatomie 3D est procédurale (silhouettes crédibles par spécialité, pas des
   maillages anatomiques importés depuis de vraies segmentations DICOM).
+- **Statut réglementaire : NON CERTIFIÉ** (`GET /api/v2/compliance/mdr-fda-status` le
+  déclare honnêtement). Voir [REGULATORY_MDR_ISO14971.md](REGULATORY_MDR_ISO14971.md)
+  pour un brouillon de classification MDR/IEC 62304 et un squelette de gestion des
+  risques ISO 14971 ancré dans le code réel — point de départ pour un futur dossier
+  réglementaire, pas une certification, à faire valider par un consultant en affaires
+  réglementaires qualifié avant tout usage clinique réel.
 
 ## Backend v2.0 — Sécurité, persistance, audit (priorité 1 de la feuille de route)
 
