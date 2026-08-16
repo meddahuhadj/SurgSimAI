@@ -278,8 +278,12 @@
    Par défaut, seuls les outils validés/utilisables au bloc sont visibles.
    Les modules exploratoires (Jalons M21-M40 : nanorobots, BCI, cryo-BNCT,
    iKnife/Ac-225, etc.) restent dans le code mais sont masqués tant que le
-   chirurgien n'active pas explicitement le Mode Recherche. */
-    .top-nav .nav-explore {
+   chirurgien n'active pas explicitement le Mode Recherche.
+   Règle volontairement non scopée à .top-nav : elle couvre aussi bien le
+   bouton d'entrée "Exploratory Lab" de la topbar que les 15 boutons de
+   lancement individuels à l'intérieur de la modale Exploratory Lab
+   elle-même — un seul et même verrou pour toute la surface exploratoire. */
+    .nav-explore {
       display: none
     }
 
@@ -301,6 +305,10 @@
 
     body.research-mode .top-nav .nav-explore {
       display: flex
+    }
+
+    body.research-mode #modal-exploratory-lab .nav-explore {
+      display: block
     }
 
     body.research-mode .top-nav {
@@ -2801,6 +2809,28 @@
       text-align: right
     }
 
+    /* Sélecteur de langue de l'écran hub (premier écran, avant tout choix de
+       mode) : coin supérieur droit, au-dessus des orbes d'arrière-plan. */
+    .hub-lang-selector {
+      position: absolute;
+      top: 20px;
+      right: 24px;
+      z-index: 10;
+    }
+
+    .hub-lang-selector .lang-selector-toggle {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 18px;
+    }
+
+    html[dir="rtl"] .hub-lang-selector {
+      right: auto;
+      left: 24px;
+    }
+
     /* ══════════════════════════════════════════════════
    I18N — support RTL (arabe)
    ══════════════════════════════════════════════════
@@ -3083,3 +3113,481 @@
         transform: translateY(0);
       }
     }
+
+    /* ================================================================
+       SurgSim 3D — MODES ENGINE STYLES (Academic, Research, Simulation)
+       ================================================================ */
+    .hub-mode-selector {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 24px;
+      z-index: 2;
+      position: relative;
+    }
+
+    .mode-card {
+      background: rgba(13, 22, 34, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 14px;
+      padding: 16px 20px;
+      width: 220px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      backdrop-filter: blur(12px);
+    }
+
+    .mode-card:hover {
+      transform: translateY(-5px);
+      border-color: var(--mode-color, var(--accent));
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), 0 0 15px var(--mode-color, var(--accent));
+    }
+
+    .mode-card-icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+
+    .mode-card-title {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+      color: var(--text1);
+    }
+
+    .mode-card-sub {
+      font-size: 10px;
+      color: var(--text2);
+      line-height: 1.4;
+    }
+
+    /* Mode Hub Overlay */
+    .mode-hub-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 99995;
+      background: rgba(8, 12, 16, 0.96);
+      backdrop-filter: blur(16px);
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+      overflow-y: auto;
+      transition: opacity 0.4s ease;
+    }
+
+    .mode-hub-overlay.hidden { display: none; }
+    .mode-hub-overlay.fade-out { opacity: 0; pointer-events: none; }
+
+    .mode-hub-header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .mode-hub-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      margin-bottom: 8px;
+    }
+
+    .academic-badge { background: rgba(79, 195, 247, 0.15); color: #4fc3f7; border: 1px solid rgba(79, 195, 247, 0.4); }
+    .research-badge { background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.4); }
+    .simulation-badge { background: rgba(255, 107, 53, 0.15); color: #ff6b35; border: 1px solid rgba(255, 107, 53, 0.4); }
+
+    .mode-hub-section {
+      background: rgba(21, 26, 34, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 20px;
+    }
+
+    .mode-section-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text1);
+      letter-spacing: 0.05em;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Academic Cards & Stepper */
+    .academic-cases-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 14px;
+    }
+
+    .academic-case-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+
+    .academic-case-card:hover {
+      border-color: #4fc3f7;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(79, 195, 247, 0.15);
+    }
+
+    .case-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .case-emoji { font-size: 24px; }
+    .case-id { font-size: 10px; font-family: var(--mono); color: var(--text3); }
+    .case-organ { font-size: 11px; font-weight: 600; color: #4fc3f7; }
+    .case-difficulty-badge {
+      margin-left: auto;
+      font-size: 9px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid;
+    }
+
+    .case-title { font-size: 13px; font-weight: 700; color: var(--text1); margin-bottom: 6px; }
+    .case-desc { font-size: 10px; color: var(--text2); line-height: 1.4; margin-bottom: 10px; }
+
+    .case-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--text3);
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      padding-top: 8px;
+    }
+
+    .case-cta { color: #4fc3f7; font-weight: 600; }
+
+    /* Stepper & Overlay Mode */
+    /* BUG CORRIGÉ : ne comptait que --top-h, pas --cert-h (bandeau "Prototype de
+       démonstration" au-dessus de la topbar) — la barre Academic/Research/Simulation
+       se plaquait donc ~28px trop haut et recouvrait la vraie topbar (dont le sélecteur
+       de langue), le rendant impossible à cliquer pendant ces 3 modes. Même formule
+       que les autres éléments qui se positionnent déjà sous les deux bandeaux
+       (voir calc(var(--cert-h, 28px) + var(--top-h, 44px) ...) ailleurs dans ce fichier). */
+    .mode-app-overlay {
+      position: fixed;
+      top: calc(var(--cert-h, 28px) + var(--top-h, 44px));
+      left: 0;
+      right: 0;
+      background: rgba(16, 34, 53, 0.94);
+      border-bottom: 1px solid var(--border2);
+      z-index: 1000;
+      padding: 8px 16px;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .mode-app-overlay.active { display: flex; }
+
+    .academic-stepper-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      overflow-x: auto;
+      padding: 4px 0;
+    }
+
+    .academic-step {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 10px;
+      color: var(--text2);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+    }
+
+    .academic-step.done {
+      background: rgba(34, 197, 94, 0.15);
+      border-color: rgba(34, 197, 94, 0.4);
+      color: #22c55e;
+    }
+
+    .astep-num {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 700;
+    }
+
+    /* Score Modal */
+    .score-modal-content { text-align: center; }
+    .score-header { margin-bottom: 16px; }
+    .score-trophy { font-size: 42px; margin-bottom: 4px; }
+    .score-value { font-size: 48px; font-weight: 800; line-height: 1; }
+    .score-value span { font-size: 20px; color: var(--text3); font-weight: 400; }
+    .score-grade { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
+
+    .score-breakdown {
+      background: var(--bg1);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 16px;
+    }
+
+    .score-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      margin-bottom: 8px;
+    }
+
+    .score-mini-bar {
+      height: 4px;
+      width: 60px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .score-mini-bar div { height: 100%; }
+
+    .score-reference {
+      background: rgba(79, 195, 247, 0.05);
+      border: 1px solid rgba(79, 195, 247, 0.2);
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 10px;
+      text-align: left;
+      margin-bottom: 16px;
+    }
+
+    .score-ref-title { font-weight: 700; color: #4fc3f7; margin-bottom: 6px; }
+    .score-ref-row { display: flex; justify-content: space-between; margin-bottom: 4px; color: var(--text2); }
+
+    .score-actions { display: flex; gap: 8px; justify-content: center; }
+
+    .btn-score-retry, .btn-score-next, .btn-score-export {
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+    }
+
+    .btn-score-retry { background: rgba(255, 255, 255, 0.1); color: var(--text1); }
+    .btn-score-next { background: #4fc3f7; color: #000; }
+    .btn-score-export { background: rgba(168, 85, 247, 0.2); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.4); }
+
+    /* Research Grid & Cards */
+    .research-studies-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+    }
+
+    .research-study-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--study-color, #a855f7);
+      border-radius: 10px;
+      padding: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .research-study-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(168, 85, 247, 0.15);
+    }
+
+    .study-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .study-emoji { font-size: 20px; }
+    .study-label { font-size: 10px; font-weight: 700; color: var(--study-color); text-transform: uppercase; }
+    .study-title { font-size: 12px; font-weight: 700; color: var(--text1); margin-bottom: 6px; }
+    .study-hypothesis { font-size: 10px; color: var(--text2); line-height: 1.4; margin-bottom: 8px; }
+
+    .study-metric-chip {
+      display: inline-block;
+      font-size: 8px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 2px 5px;
+      border-radius: 3px;
+      margin-right: 3px;
+      margin-bottom: 3px;
+      color: var(--text2);
+    }
+
+    .study-groups { font-size: 9px; color: var(--text3); margin-top: 6px; line-height: 1.3; }
+    .study-cta { font-size: 10px; font-weight: 600; color: var(--study-color); margin-top: 8px; text-align: right; }
+
+    /* Research Metrics & Overlay */
+    .research-metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .research-metric-box {
+      background: var(--bg1);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px;
+      text-align: center;
+    }
+
+    .rmb-label { font-size: 9px; color: var(--text3); margin-bottom: 2px; }
+    .rmb-value { font-size: 14px; font-weight: 700; color: #a855f7; }
+
+    /* Simulation Library & Voice & Scenario Bar */
+    .mode-hub-cols { display: flex; gap: 16px; }
+
+    .sim-library { display: flex; flex-direction: column; gap: 12px; }
+    .sim-category { border-left: 3px solid var(--cat-color); padding-left: 10px; }
+    .sim-cat-header { font-size: 11px; font-weight: 700; color: var(--cat-color); margin-bottom: 6px; }
+    .sim-cat-cases { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+
+    .sim-case-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .sim-case-card:hover {
+      border-color: #ff6b35;
+      transform: translateY(-2px);
+    }
+
+    .sim-case-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .sim-case-id { font-size: 9px; font-family: var(--mono); color: var(--text3); }
+    .sim-case-type { font-size: 8px; padding: 1px 4px; border-radius: 3px; font-weight: 600; }
+    .type-real { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+    .type-ai { background: rgba(168, 85, 247, 0.2); color: #a855f7; }
+    .type-synth { background: rgba(79, 195, 247, 0.2); color: #4fc3f7; }
+
+    .sim-case-title { font-size: 11px; font-weight: 700; color: var(--text1); margin-bottom: 2px; }
+    .sim-case-desc { font-size: 9px; color: var(--text2); line-height: 1.3; }
+    .sim-case-footer { display: flex; justify-content: space-between; font-size: 9px; margin-top: 6px; color: var(--text3); }
+    .sim-cta { color: #ff6b35; font-weight: 600; }
+
+    /* AI Level Selector */
+    .ai-level-selector { display: flex; flex-direction: column; gap: 8px; }
+    .ai-level-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: all 0.2s ease;
+    }
+
+    .ai-level-card.active {
+      border-color: #ff6b35;
+      background: rgba(255, 107, 53, 0.1);
+    }
+
+    .ai-level-num {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: #ff6b35;
+    }
+
+    .ai-level-title { font-size: 11px; font-weight: 700; color: var(--text1); }
+    .ai-level-desc { font-size: 9px; color: var(--text3); }
+
+    /* Voice Commands List */
+    .sim-voice-commands { display: flex; flex-direction: column; gap: 6px; }
+    .sim-voice-cmd {
+      background: var(--bg1);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 9.5px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sim-voice-quote { font-weight: 600; color: #eab308; }
+    .sim-voice-desc { color: var(--text3); font-size: 8.5px; }
+
+    /* Sim Scenario Bar */
+    .sim-scenario-bar { display: flex; align-items: center; gap: 6px; }
+    .sim-scenario-chip {
+      padding: 3px 10px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      font-size: 10px;
+      color: var(--text2);
+      cursor: pointer;
+    }
+
+    .sim-scenario-chip.active {
+      background: rgba(255, 107, 53, 0.25);
+      border-color: #ff6b35;
+      color: #ff6b35;
+      font-weight: 700;
+    }
+
+    .sim-add-scenario {
+      background: transparent;
+      border: 1px dashed rgba(255, 255, 255, 0.2);
+      color: var(--text3);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .sim-add-scenario:hover { color: #ff6b35; border-color: #ff6b35; }
+
+    /* Indicator Badge */
+    #mode-platform-indicator {
+      display: none;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      border: 1px solid;
+      margin-left: 10px;
+    }
+

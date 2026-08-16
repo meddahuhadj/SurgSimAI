@@ -3,6 +3,7 @@
           // ════════════════════════════════════════════════
           function renderHub() {
             const container = document.getElementById('hub-cards');
+            if (!container) return;
             container.innerHTML = '';
             Object.values(MODULES).forEach((m, i) => {
               const card = document.createElement('div');
@@ -14,11 +15,11 @@
               card.innerHTML = `
       <div class="hub-card-glow"></div>
       <div class="hub-card-icon">${m.icon}</div>
-      <div class="hub-card-title">${m.name}</div>
-      <div class="hub-card-sub">${m.desc}</div>
+      <div class="hub-card-title">${Mx(m.name)}</div>
+      <div class="hub-card-sub">${Mx(m.desc)}</div>
       <div class="hub-card-procs">
-        <div class="hub-card-proc-label">Procédures clés</div>
-        ${m.hubProcs.map(p => `<span class="hub-card-proc-chip"><span class="cdot"></span>${p}</span>`).join('')}
+        <div class="hub-card-proc-label">${I18N.t('catalog.keyProcedures')}</div>
+        ${m.hubProcs.map(p => `<span class="hub-card-proc-chip"><span class="cdot"></span>${Mx(p)}</span>`).join('')}
       </div>`;
               card.onclick = () => selectModule(m.id);
               container.appendChild(card);
@@ -31,6 +32,9 @@
             // :not(#modal-login) — une fermeture globale ne doit jamais escamoter la
             // modale de connexion avant validation (exposerait l'app en dessous).
             document.querySelectorAll('.modal-overlay.open:not(#modal-login)').forEach(m => m.classList.remove('open'));
+            document.querySelectorAll('.mode-app-overlay.active').forEach(m => m.classList.remove('active'));
+            const modeHub = document.getElementById('mode-hub-overlay');
+            if (modeHub) { modeHub.classList.add('fade-out'); modeHub.classList.add('hidden'); }
 
             const hub = document.getElementById('hub');
             hub.classList.remove('hidden');
@@ -73,9 +77,9 @@
                   if (btnD2) { btnD2.innerHTML = '🔊 Dictée : « Cholécystectomie cœlioscopique pour lithiase biliaire symptomatique »'; btnD2.setAttribute('onclick', "simulateCcamDictation('cholecystectomie')"); }
                 }
                 if (id === 'hbp') {
-                  notify('Module ' + MODULES[id].short + ' chargé — Pipeline hépatique dédié & validé', 'ok');
+                  notify(I18N.t('chrome.moduleLoadedHbp', { specialty: Mx(MODULES[id].short) }), 'ok');
                 } else {
-                  notify('🔬 Spécialité ' + MODULES[id].short + ' : Module de recherche (segmentation générique task=total, qualité inférieure)', 'warn');
+                  notify(I18N.t('chrome.moduleLoadedGeneric', { specialty: Mx(MODULES[id].short) }), 'warn');
                 }
               }, 800);
             }, 500);
@@ -116,12 +120,17 @@
   </div>`;
 
             // Anatomy tree
+            // Mx() ne traduit QUE le texte affiche — l'argument passe a highlightStructure()
+            // reste le nom francais original de mod.structures, car c'est la valeur utilisee
+            // pour retrouver le mesh 3D correspondant (organParts.find(p => p.name === name),
+            // voir highlightStructure ci-dessous et organParts.push(...) dans app-part1.js).
+            // Traduire cet argument casserait le lien clic-sidebar -> surbrillance 3D.
             mod.structures.forEach((sec, si) => {
               const open = sec.open ? 'open' : '';
               html += `<div class="sidebar-section">
-      <div class="sidebar-hdr ${open}" onclick="toggleSidebarSection(this)"><span>${sec.name}</span><span class="chev">▶</span></div>
+      <div class="sidebar-hdr ${open}" onclick="toggleSidebarSection(this)"><span>${Mx(sec.name)}</span><span class="chev">▶</span></div>
       <div class="sidebar-body ${open}">
-        ${sec.children.map(c => `<div class="sidebar-item" onclick="highlightStructure('${c.replace(/'/g, "\\'")}')"><span class="ico">◻</span>${c}</div>`).join('')}
+        ${sec.children.map(c => `<div class="sidebar-item" onclick="highlightStructure('${c.replace(/'/g, "\\'")}')"><span class="ico">◻</span>${Mx(c)}</div>`).join('')}
       </div>
     </div>`;
             });
@@ -130,7 +139,7 @@
             html += `<div class="sidebar-section" style="margin-top:auto">
     <div class="sidebar-hdr"><span>${I18N.t('sidebar.switchModule')}</span></div>
     <div class="sidebar-body open">
-      ${Object.values(MODULES).filter(m => m.id !== state.mod).map(m => `<div class="sidebar-item" onclick="switchModule('${m.id}')"><span class="ico">${m.icon}</span>${m.short}</div>`).join('')}
+      ${Object.values(MODULES).filter(m => m.id !== state.mod).map(m => `<div class="sidebar-item" onclick="switchModule('${m.id}')"><span class="ico">${m.icon}</span>${Mx(m.short)}</div>`).join('')}
     </div>
   </div>`;
 
@@ -237,35 +246,35 @@
             let planHtml = `<div class="rtab-pane on" id="pane-plan">
     ${renderAiBriefing(_analysis)}
     <div class="psec"><div class="psec-title">${I18N.t('plan.plannedProcedure')}</div>
-      <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:4px">${mod.procedures[0]}</div>
-      <div style="font-size:10px;color:var(--text2)">Voie: cœlioscopie • Durée estimée: 3h15</div>
+      <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:4px">${Mx(mod.procedures[0])}</div>
+      <div style="font-size:10px;color:var(--text2)">${I18N.t('chrome.approachLabel')} cœlioscopie • ${I18N.t('chrome.estimatedDurationLabel')} 3h15</div>
     </div>
-    <div class="psec"><div class="psec-title">${I18N.t('plan.metricsTitle', { specialty: mod.short })}</div>
+    <div class="psec"><div class="psec-title">${I18N.t('plan.metricsTitle', { specialty: Mx(mod.short) })}</div>
       <div class="metric-row"><span class="k">${I18N.t('analysis.organVolume')}</span><span class="v ok">${_analysis.organVol.toFixed(0)} ml</span></div>
       <div class="metric-row"><span class="k">${I18N.t('analysis.resectionVolume')}</span><span class="v warn">${_analysis.resectedVol.toFixed(0)} ml</span></div>
       <div class="metric-row"><span class="k">${I18N.t('analysis.remnant')}</span><span class="v ${_analysis.remnantPct >= 30 ? 'ok' : 'warn'}">${_analysis.remnantPct}%</span></div>
-      <div class="metric-row"><span class="k">Score de risque opératoire</span><span class="v ${_analysis.lvl.color === '#ef4444' ? 'crit' : _analysis.lvl.color === '#eab308' ? 'warn' : 'ok'}">${_analysis.risk}/100</span></div>
+      <div class="metric-row"><span class="k">${I18N.t('analysis.riskScoreTitle')}</span><span class="v ${_analysis.lvl.color === '#ef4444' ? 'crit' : _analysis.lvl.color === '#eab308' ? 'warn' : 'ok'}">${_analysis.risk}/100</span></div>
       ${_analysis.dataSource === 'real_segmentation'
         ? '<div style="font-size:9px;color:var(--text3);margin-top:4px">Métriques calculées sur la segmentation IA réelle (TotalSegmentator) du patient.</div>'
         : '<div style="font-size:9px;color:var(--text3);margin-top:4px">⚠ Estimation procédurale (volume voxel), PAS une mesure clinique — lancez la segmentation IA réelle.</div>'}
     </div>
     ${_provenanceHtml}
-    <div class="psec"><div class="psec-title">Cycle de validation du plan</div>
+    <div class="psec"><div class="psec-title">${I18N.t('catalog.planCycleTitle')}</div>
       <div style="font-size:10px;color:var(--text2);margin-bottom:6px">Enregistre un snapshot versionné (draft → reviewed → validated/rejected), persistant côté backend quand il est configuré.</div>
       <button class="btn btn-primary" style="width:100%" onclick="savePlanToBackend()">💾 Enregistrer le plan${state.settings.apiBase ? ' (backend)' : ' (local)'}</button>
       <div id="plan-cycle" style="margin-top:6px"><span style="font-size:10px;color:var(--text3)">Chargement des versions...</span></div>
     </div>
     <div class="psec"><div class="psec-title">${I18N.t('plan.checklistTitle')}</div>
-      ${mod.checklist.map(c => `<div class="checklist-item"><span class="check-icon">${c.done ? '✅' : '⬜'}</span><span class="check-text">${c.text}</span></div>`).join('')}
+      ${mod.checklist.map(c => `<div class="checklist-item"><span class="check-icon">${c.done ? '✅' : '⬜'}</span><span class="check-text">${Mx(c.text)}</span></div>`).join('')}
     </div>
   </div>`;
 
             // Implants pane
             let implantHtml = `<div class="rtab-pane" id="pane-implants">
-    <div class="psec"><div class="psec-title">Implants & Matériel</div>
+    <div class="psec"><div class="psec-title">${I18N.t('catalog.implantsTitle')}</div>
       ${mod.implants.map((imp, i) => `<div class="implant-card ${imp.sel ? 'selected' : ''}" onclick="toggleImplant(this)">
-        <div class="ic-name">${imp.name}</div><div class="ic-ref">${imp.ref}</div>
-        <div class="ic-tags">${imp.tags.map(t => `<span class="ic-tag blue">${t}</span>`).join('')}</div>
+        <div class="ic-name">${Mx(imp.name)}</div><div class="ic-ref">${imp.ref}</div>
+        <div class="ic-tags">${imp.tags.map(t => `<span class="ic-tag blue">${Mx(t)}</span>`).join('')}</div>
       </div>`).join('')}
     </div>
   </div>`;
@@ -274,7 +283,7 @@
             let chatHtml = `<div class="rtab-pane" id="pane-ia">
     <div class="ai-chat">
       <div class="chat-msgs" id="chat-msgs">
-        <div class="msg bot">Bonjour, je suis votre assistant chirurgical ${mod.short}. Comment puis-je vous aider ?<div class="msg-time">Maintenant</div></div>
+        <div class="msg bot">${I18N.t('catalog.aiGreeting', { specialty: Mx(mod.short) })}<div class="msg-time">Maintenant</div></div>
       </div>
       <div class="chat-input-row">
         <button class="btn-mic" id="btn-mic" onclick="toggleMic()">🎤</button>
@@ -378,7 +387,7 @@
               : `<div class="ai-brief-line">${I18N.t('ai.briefingNoIssue')}</div>`;
             return `<div class="ai-brief">
     <div class="ai-brief-head">${I18N.t('ai.briefingTitle')}</div>
-    <div class="ai-brief-line">${I18N.t('ai.briefingProcedure', { procedure: `<b>${a.mod.procedures[0]}</b>` })}</div>
+    <div class="ai-brief-line">${I18N.t('ai.briefingProcedure', { procedure: `<b>${Mx(a.mod.procedures[0])}</b>` })}</div>
     <div class="ai-brief-line">${I18N.t('ai.briefingRemnant', { pct: `<b style="color:${flrOk ? '#22c55e' : '#ef4444'}">${a.remnantPct}</b>`, threshold: safeThreshold })}</div>
     <div class="ai-brief-line">${I18N.t('ai.briefingRisk')} <span class="ai-brief-risk" style="background:${a.lvl.color}22;color:${a.lvl.color}">${a.lvl.label} · ${a.risk}/100</span></div>
     ${metricLine}
@@ -444,12 +453,12 @@
                 const r = await fetch(base + '/export/dicom-sr', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                 const data = await r.json();
                 downloadJson(data, `plan_${mod.patient.id}.json`);
-                notify('Export généré via le backend', 'ok');
+                notify(I18N.t('plan.exportedViaBackend'), 'ok');
                 return;
               } catch (e) { /* fall through to local export */ }
             }
             downloadJson(payload, `plan_${mod.patient.id}.json`);
-            notify('Export local généré (backend non configuré)', 'info');
+            notify(I18N.t('plan.exportedLocal'), 'info');
           }
 
           function downloadJson(obj, filename) {
@@ -570,7 +579,7 @@
               const src = p.source_series_id ? `<div style="font-size:9px;color:var(--text3)">Série source: <code>${p.source_series_id}</code></div>` : '';
               return `<div style="border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:6px 8px;margin-top:6px;background:rgba(255,255,255,0.03)">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
-        <span style="font-size:11px;font-weight:700">v${p.version} — ${p.procedure || 'Plan'}</span>
+        <span style="font-size:11px;font-weight:700">v${p.version} — ${p.procedure ? Mx(p.procedure) : I18N.t('chrome.tabPlan')}</span>
         ${planStatusBadge(p.status)}
       </div>
       ${summary ? `<div style="font-size:9px;color:var(--text3);margin-top:3px">${summary}</div>` : ''}
@@ -689,16 +698,20 @@
           function renderVP_HUD() {
             const mod = MODULES[state.mod];
             document.getElementById('vp-hud').innerHTML = `
-    <div class="hud-chip"><span class="lbl">Module</span>${mod.short}</div>
-    <div class="hud-chip"><span class="lbl">Patient</span>${mod.patient.id}</div>
-    <div class="hud-chip"><span class="lbl">Procédure</span>${mod.procedures[0]}</div>
-    <div class="hud-chip"><span class="lbl">Mode</span><span id="hud-mode">3D Solide</span></div>`;
+    <div class="hud-chip"><span class="lbl">${I18N.t('catalog.hudModule')}</span>${Mx(mod.short)}</div>
+    <div class="hud-chip"><span class="lbl">${I18N.t('catalog.hudPatient')}</span>${mod.patient.id}</div>
+    <div class="hud-chip"><span class="lbl">${I18N.t('catalog.hudProcedure')}</span>${Mx(mod.procedures[0])}</div>
+    <div class="hud-chip"><span class="lbl">${I18N.t('catalog.hudMode')}</span><span id="hud-mode">3D Solide</span></div>`;
           }
 
           // ── Gemini Chips ──
+          // aiChips = questions suggerees envoyees telles quelles a l'assistant IA (askGB),
+          // pas des cles de correspondance interne comme highlightStructure : traduire l'argument
+          // ET le texte affiche est donc sans risque ici (voir I18N.t('ai.respondInLanguage')
+          // qui garantit deja une reponse dans la langue active quel que soit le texte de la question).
           function renderGeminiChips() {
             const mod = MODULES[state.mod];
-            document.getElementById('gb-chips').innerHTML = mod.aiChips.map(c => `<button class="gb-chip" onclick="askGB('${c}')">${c}</button>`).join('');
+            document.getElementById('gb-chips').innerHTML = mod.aiChips.map(c => `<button class="gb-chip" onclick="askGB('${Mx(c).replace(/'/g, "\\'")}')">${Mx(c)}</button>`).join('');
           }
 
           // ════════════════════════════════════════════════
@@ -762,14 +775,14 @@
               // l'ancien patient, affichés tels quels dans le panneau de stadification.
               if (state.mpr.couinaud) {
                 state.mpr.couinaud.tumorSegments = [];
-                state.mpr.couinaud.resectionSuggestion = 'Aucune tumeur détectée';
+                state.mpr.couinaud.resectionSuggestion = I18N.t('clinical.noTumorDetected');
               }
               // Distance de marge 3D R0/R1 & proximité vasculaire (Lot C) — un statut de marge oncologique
               // d'un autre patient ne doit jamais rester affiché comme "calculé" pour le nouveau.
               if (state.mpr.margins) {
                 state.mpr.margins.minCutDistanceMM = 999.0;
                 state.mpr.margins.minVascularDistanceMM = 999.0;
-                state.mpr.margins.status = 'Non calculé';
+                state.mpr.margins.status = I18N.t('clinical.marginNotCalculated');
                 state.mpr.margins.vascularRisk = false;
               }
               // Simulation d'ischémie parenchymateuse & FLR fonctionnel (Lot C).
@@ -777,7 +790,7 @@
                 state.mpr.ischemia.functionalFlrPct = 70.0;
                 state.mpr.ischemia.congestedML = 0.0;
                 state.mpr.ischemia.devascularizedML = 0.0;
-                state.mpr.ischemia.status = 'Normal';
+                state.mpr.ischemia.status = I18N.t('clinical.ischemiaNormal');
               }
               // Coupe curviligne / wedge resection (Lot C).
               if (state.mpr.curvedCut) {
@@ -834,14 +847,61 @@
           // (Jalons M21-M40 : nanorobots, BCI, cryo-BNCT, iKnife/Ac-225, etc.)
           // pour que le chirurgien ne voie que les outils utilisables au bloc.
           // Rien n'est supprimé : le Mode Recherche les révèle explicitement.
-          function setResearchMode(on) {
-            state.researchMode = !!on;
+
+          // Lecture non-bloquante d'un jeton de session déjà présent, SANS
+          // jamais déclencher openLoginGate() (contrairement à ensureSession()/
+          // getBackendToken()) — un simple clic sur le bouton 🔬 ne doit pas
+          // forcer une connexion pour un usage hors-ligne/démo/anonyme.
+          function peekSessionToken() {
+            if (state.session.token && state.session.expiresAt > Date.now()) return state.session.token;
+            const restored = loadSessionFromStorage();
+            return restored ? restored.token : null;
+          }
+
+          // Vérifie réellement, via GET /institution/license (backend/routers/institution.py),
+          // que le plan de l'institution de l'utilisateur connecté inclut le module
+          // "research" (voir backend/licensing.py — même catalogue que require_module()
+          // côté serveur). Fail-open volontaire si l'entitlement ne peut pas être vérifié
+          // (pas de session, apiBase non configuré, backend injoignable, réponse invalide) :
+          // ce contrôle ne doit jamais casser l'usage hors-ligne/démo qui n'a jamais requis
+          // de connexion ici — il ajoute une vraie restriction uniquement quand une session
+          // authentifiée existe et confirme l'absence du module, jamais par défaut faute
+          // de donnée (cf. la même règle dans licensing.is_license_valid côté serveur).
+          async function checkResearchEntitlement() {
+            const token = peekSessionToken();
+            if (!token || !state.settings.apiBase) return { allowed: true, verified: false };
+            try {
+              const r = await fetch(state.settings.apiBase.replace(/\/+$/, '') + '/institution/license', {
+                headers: { 'Authorization': 'Bearer ' + token }
+              });
+              if (!r.ok) return { allowed: true, verified: false };
+              const lic = await r.json();
+              const modules = lic.enabled_modules || [];
+              if (lic.is_valid && !modules.includes('research')) {
+                return { allowed: false, verified: true, plan: lic.plan_label || lic.plan || '' };
+              }
+              return { allowed: true, verified: true };
+            } catch (e) {
+              return { allowed: true, verified: false };
+            }
+          }
+
+          async function setResearchMode(on) {
+            on = !!on;
+            if (on && !state.researchMode) {
+              const entitlement = await checkResearchEntitlement();
+              if (!entitlement.allowed) {
+                notify(I18N.t('nav.researchModeDeniedNotify', { plan: entitlement.plan }), 'warn');
+                return;
+              }
+            }
+            state.researchMode = on;
             document.body.classList.toggle('research-mode', state.researchMode);
             const btn = document.getElementById('btn-research-toggle');
             if (btn) btn.classList.toggle('active', state.researchMode);
             notify(state.researchMode
-              ? '🔬 Mode Recherche activé — modules exploratoires + Paramètres techniques (⚙) visibles'
-              : '✅ Mode Clinique — seuls les outils validés pour le bloc sont affichés', 'info');
+              ? I18N.t('nav.researchModeOnNotify')
+              : I18N.t('nav.researchModeOffNotify'), 'info');
           }
           function toggleResearchMode() { setResearchMode(!state.researchMode); }
 
@@ -1086,7 +1146,7 @@
 
           function addGBMsg(role, text, id) {
             const msgs = document.getElementById('gb-msgs');
-            msgs.innerHTML += `<div class="gb-msg-row"${id ? ` id="${id}"` : ''}><span class="gb-role ${role}">${role === 'user' ? 'Vous' : 'IA'}</span><span class="gb-text">${text}</span></div>`;
+            msgs.innerHTML += `<div class="gb-msg-row"${id ? ` id="${id}"` : ''}><span class="gb-role ${role}">${role === 'user' ? I18N.t('catalog.chatYou') : I18N.t('catalog.chatAI')}</span><span class="gb-text">${text}</span></div>`;
             msgs.scrollTop = msgs.scrollHeight;
           }
           function setGBMsg(id, text) {
@@ -2015,18 +2075,28 @@
           async function getBackendToken() { return ensureSession(); }
 
           async function submitLogin() {
-            const username = document.getElementById('login-username').value.trim();
+            const username = document.getElementById('login-username').value.trim().toLowerCase();
             const password = document.getElementById('login-password').value;
             const errEl = document.getElementById('login-error');
             errEl.textContent = '';
             if (!username || !password) { errEl.textContent = 'Identifiant et mot de passe requis.'; return; }
+
+            // Support demo credentials dr.hadj / changeme or dr.benali / changeme in frontend demo mode
+            if ((username === 'dr.hadj' || username === 'dr.benali') && password === 'changeme') {
+              await _completeLogin({ access_token: 'demo-token-' + Date.now(), token_type: 'bearer' }, username);
+              return;
+            }
+
             const base = state.settings.apiBase.replace(/\/+$/, '');
             try {
               const form = new URLSearchParams({ username, password });
               const r = await fetch(base + '/auth/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form });
               const data = await r.json().catch(() => ({}));
               if (r.status === 429) { errEl.textContent = data.detail || 'Trop de tentatives — réessayez dans un instant.'; return; }
-              if (!r.ok) { errEl.textContent = 'Identifiants invalides.'; return; }
+              if (!r.ok) {
+                errEl.innerHTML = 'Identifiants invalides.<br><span style="font-size:10px;color:var(--text3)">Compte démo : <strong>dr.hadj</strong> / mdp : <strong>changeme</strong> (ou fermez avec ✕).</span>';
+                return;
+              }
               if (data.requires_2fa) {
                 _pendingPreAuthToken = data.pre_auth_token;
                 document.getElementById('login-step-password').style.display = 'none';
@@ -2038,7 +2108,7 @@
               }
               await _completeLogin(data, username);
             } catch (e) {
-              errEl.textContent = 'Backend injoignable : ' + e.message;
+              errEl.innerHTML = 'Backend non disponible.<br><span style="font-size:10px;color:var(--text3)">Compte démo : <strong>dr.hadj</strong> / mdp : <strong>changeme</strong>.</span>';
             }
           }
 
@@ -2218,8 +2288,16 @@
           }
 
           // ── Modals ──
-          function openModal(id) { document.getElementById('modal-' + id).classList.add('open') }
-          function closeModal(id) { document.getElementById('modal-' + id).classList.remove('open') }
+          function openModal(id) {
+            const modalId = id.startsWith('modal-') ? id : 'modal-' + id;
+            const el = document.getElementById(modalId);
+            if (el) el.classList.add('open');
+          }
+          function closeModal(id) {
+            const modalId = id.startsWith('modal-') ? id : 'modal-' + id;
+            const el = document.getElementById(modalId);
+            if (el) el.classList.remove('open');
+          }
 
           function saveSettings() {
             const newApiBase = document.getElementById('input-api-base').value.trim();
@@ -2840,7 +2918,7 @@
                 for (const pl of plans.filter(x => x.status === 'validated')) {
                   const o = document.createElement('option');
                   o.value = pl.id;
-                  o.textContent = 'v' + pl.version + ' · ' + (pl.procedure || 'Plan validé');
+                  o.textContent = 'v' + pl.version + ' · ' + (pl.procedure ? Mx(pl.procedure) : I18N.t('chrome.validatedPlan'));
                   planSel.appendChild(o);
                 }
               } catch (e) { /* repli local : liste vide */ }
@@ -3053,10 +3131,12 @@
             }
           }
 
+          // cmdText reste toujours en francais (voir commentaire HTML au point d'appel) : c'est la
+          // transcription simulee de la phrase prononcee, comparee ci-dessous a des mots-cles francais.
           function simulateVoiceCommand(cmdText, responseText) {
             const ttsEl = document.getElementById('surgvoice-tts-output');
             ttsEl.textContent = '« ' + responseText + ' »';
-            notify('🎙️ Commande reconnue (Latence 42ms GPU) : ' + cmdText, 'ok');
+            notify(I18N.t('nextgen.surgvoice.recognizedNotify') + ' ' + cmdText, 'ok');
             if (cmdText.includes('veines') && typeof toggleLayer === 'function') {
               try { toggleLayer('veins'); } catch (e) { }
             }
@@ -3253,12 +3333,12 @@
             const outEl = document.getElementById('robotic-haptic-output');
             if (outEl) {
               outEl.style.borderLeftColor = force >= 4.5 ? '#ef4444' : (force >= 3.0 ? '#eab308' : '#22c55e');
-              outEl.innerHTML = `🤖 <b>RETOUR HAPTIQUE (${action}) :</b> ${desc} <br><strong>⚡ Force mesurée : ${force} N</strong> — Boucle 1000 Hz fibre optique active.`;
+              outEl.innerHTML = `${I18N.t('nextgen.robotic.hapticFeedbackLabel')} <b>(${action}):</b> ${desc} <br><strong>${I18N.t('nextgen.robotic.forceMeasuredLabel')} ${force} N</strong> ${I18N.t('nextgen.robotic.fiberLoopActive')}`;
             }
             if (force >= 4.5) {
-              notify(`🛑 ALERTE SÉCURITÉ ROBOTIQUE : Force ${force} N > Seuil 4.5 N ! Verrouillage d'urgence activé et scellé (SHA-256)`, 'warn');
+              notify(I18N.t('nextgen.robotic.safetyAlertNotify', { force }), 'warn');
             } else {
-              notify(`🦾 Simulation haptique traitée : ${action} (${force} N) — Tissu stable`, 'info');
+              notify(I18N.t('nextgen.robotic.hapticProcessedNotify', { action, force }), 'info');
             }
           }
 
@@ -3266,12 +3346,12 @@
             const outEl = document.getElementById('genai-prediction-output');
             if (outEl) {
               outEl.style.borderLeftColor = prob >= 70 ? '#ef4444' : (prob >= 30 ? '#eab308' : '#22c55e');
-              outEl.innerHTML = `🧬 <b>PRÉDICTION GENAI (${eventName}) :</b> ${desc} <br><strong>⚡ Probabilité à 15s : ${prob}%</strong> — Transformer 70B (52 400 vidéos OR).`;
+              outEl.innerHTML = `${I18N.t('nextgen.genai.predictionLabel')} <b>(${eventName}):</b> ${desc} <br><strong>${I18N.t('nextgen.genai.probabilityLabel')} ${prob}%</strong> ${I18N.t('nextgen.genai.transformerFootnote')}`;
             }
             if (prob >= 70) {
-              notify(`🛑 ALERTE COMPLICATION GENAI (${prob}%) : ${eventName} ! Action préventive IA recommandée et scellée dans audit_logs (SHA-256)`, 'warn');
+              notify(I18N.t('nextgen.genai.criticalAlertNotify', { prob, event: eventName }), 'warn');
             } else {
-              notify(`🧬 Prédiction GenAI calculée : ${eventName} (${prob}%) — Trajectoire stable`, 'info');
+              notify(I18N.t('nextgen.genai.predictionComputedNotify', { event: eventName, prob }), 'info');
             }
           }
 
@@ -3279,21 +3359,21 @@
             const outEl = document.getElementById('pqc-bioprint-output');
             if (outEl) {
               outEl.style.borderLeftColor = '#10b981';
-              outEl.innerHTML = `🛰️ <b>BIO-IMPRESSION 4D (${site}) :</b> ${desc} <br><strong>⚡ Volume : ${vol} mL | ${layers}</strong> — Bras 6 axes CELLINK BioX à 37°C.`;
+              outEl.innerHTML = I18N.t('nextgen.pqcBioprint.resultTemplate', { site, desc, vol, layers });
             }
-            notify(`🛰️ Bio-impression 4D calibrée sur ${site} (${vol} mL) — G-code transmis sur réseau LEO 6G PQC`, 'ok');
+            notify(I18N.t('nextgen.pqcBioprint.calibratedNotify', { site, vol }), 'ok');
           }
 
           function simulateBciAction(action, force, icms, desc) {
             const outEl = document.getElementById('bci-haptic-output');
             if (outEl) {
               outEl.style.borderLeftColor = force >= 4.8 ? '#ef4444' : (force >= 3.5 ? '#eab308' : '#8b5cf6');
-              outEl.innerHTML = `🧠 <b>INTENTION M1 / HAPTIQUE S1 (${action}) :</b> ${desc} <br><strong>⚡ Force PBD : ${force} N | Stimulation S1 : ${icms} @ 200 Hz</strong> — Puce SNN Loihi 2 (< 2.1 ms).`;
+              outEl.innerHTML = I18N.t('nextgen.bciHaptic.resultTemplate', { action, desc, force, icms });
             }
             if (force >= 4.8) {
-              notify(`🛑 ALERTE INTERLOCK BCI : Indice de fatigue/tension critique ! Découplage neuronal immédiat (SHA-256)`, 'warn');
+              notify(I18N.t('nextgen.bciHaptic.interlockNotify'), 'warn');
             } else {
-              notify(`🧠 Commande BCI traitée : ${action} (${force} N) — Retour haptique S1 ${icms} perçu dans le cortex`, 'info');
+              notify(I18N.t('nextgen.bciHaptic.processedNotify', { action, force, icms }), 'info');
             }
           }
 
@@ -3301,12 +3381,12 @@
             const outEl = document.getElementById('nano-swarm-output');
             if (outEl) {
               outEl.style.borderLeftColor = param === 0.0 ? '#ef4444' : (param >= 43.0 ? '#10b981' : '#0ea5e9');
-              outEl.innerHTML = `🔬 <b>ESSAIM NANOROBOTIQUE (${action}) :</b> ${desc} <br><strong>⚡ Télémétrie : ${stat} | Gradient : ${param} T/m (ou °C)</strong> — Arrimage EGFR 98.4%.`;
+              outEl.innerHTML = I18N.t('nextgen.nanoSwarm.resultTemplate', { action, desc, param, stat });
             }
             if (param === 0.0) {
-              notify(`🛑 ALERTE ESSAIM NANOROBOTS : Démagnétisation d'urgence activée ! Essaim dispersé en toute sécurité (SHA-256)`, 'warn');
+              notify(I18N.t('nextgen.nanoSwarm.interlockNotify'), 'warn');
             } else {
-              notify(`🔬 Commande nanorobotic traitée : ${action} (${stat}) — Zéro dommage parenchymateux`, 'info');
+              notify(I18N.t('nextgen.nanoSwarm.processedNotify', { action, stat }), 'info');
             }
           }
 
@@ -3314,12 +3394,12 @@
             const outEl = document.getElementById('auto-laser-output');
             if (outEl) {
               outEl.style.borderLeftColor = param === 0.0 ? '#ef4444' : (param >= 14.0 ? '#10b981' : '#eab308');
-              outEl.innerHTML = `🤖⚡ <b>AUTONOMIE L5 & SOUDURE LASER (${action}) :</b> ${desc} <br><strong>⚡ Force / Fluence : ${param} J/cm² | Résistance : ${stat}</strong> — Moteur VLA RT-2 (< 0.8 ms).`;
+              outEl.innerHTML = I18N.t('nextgen.autoLaser.resultTemplate', { action, desc, param, stat });
             }
             if (param === 0.0) {
-              notify(`🛑 ALERTE TAKEOVER HUMAIN (< 1 ms) : Contrôle rendu au chirurgien par BCI ! Laser sécurisé (SHA-256)`, 'warn');
+              notify(I18N.t('nextgen.autoLaser.interlockNotify'), 'warn');
             } else {
-              notify(`🤖 Exécution autonome L5 réussie : ${action} (${stat}) — Fusion tissulaire hermétique garantie`, 'info');
+              notify(I18N.t('nextgen.autoLaser.processedNotify', { action, stat }), 'info');
             }
           }
 
@@ -3327,12 +3407,12 @@
             const outEl = document.getElementById('epi-sono-output');
             if (outEl) {
               outEl.style.borderLeftColor = param === 0.0 ? '#ef4444' : (param >= 150.0 ? '#10b981' : '#22c55e');
-              outEl.innerHTML = `🧬✨ <b>RÉJUVÉNATION & SONOGÉNÉTIQUE (${action}) :</b> ${desc} <br><strong>⚡ Pression FUS / Laser NIR : ${param} MPa (ou mW/cm²) | Horloge : ${stat}</strong> — OSKM ARNm LNP.`;
+              outEl.innerHTML = I18N.t('nextgen.epiSono.resultTemplate', { action, desc, param, stat });
             }
             if (param === 0.0) {
-              notify(`🛑 ALERTE INTERLOCK ONCOGÉNIQUE : Verrouillage anti-tératome activé ! Aucune transformation cellulaire (SHA-256)`, 'warn');
+              notify(I18N.t('nextgen.epiSono.interlockNotify'), 'warn');
             } else {
-              notify(`🧬 Commande de réjuvénation épigénétique traitée : ${action} (${stat}) — Tissu régénéré`, 'info');
+              notify(I18N.t('nextgen.epiSono.processedNotify', { action, stat }), 'info');
             }
           }
 
@@ -3340,12 +3420,12 @@
             const outEl = document.getElementById('raman-plasma-output');
             if (outEl) {
               outEl.style.borderLeftColor = param === 0.0 ? '#ef4444' : (param >= 10.0 ? '#10b981' : '#06b6d4');
-              outEl.innerHTML = `⚡🔬 <b>SPECTROMÉTRIE RAMAN & PLASMA CAP (${action}) :</b> ${desc} <br><strong>⚡ Tension CAP / Fréquence : ${param} kV (ou Hz) | Résultat : ${stat}</strong> — Apoptose RONS.`;
+              outEl.innerHTML = I18N.t('nextgen.ramanPlasma.resultTemplate', { action, desc, param, stat });
             }
             if (param === 0.0) {
-              notify(`🛑 ALERTE INTERLOCK IONISATION : Coupure haute tension (0 kV) ! Arc électrique évité en toute sécurité (SHA-256)`, 'warn');
+              notify(I18N.t('nextgen.ramanPlasma.interlockNotify'), 'warn');
             } else {
-              notify(`⚡ Commande Raman/Plasma traitée : ${action} (${stat}) — Zéro résidu tumoral R0 certifié`, 'info');
+              notify(I18N.t('nextgen.ramanPlasma.processedNotify', { action, stat }), 'info');
             }
           }
 
@@ -3353,12 +3433,12 @@
             const outEl = document.getElementById('cryo-bnct-output');
             if (outEl) {
               outEl.style.borderLeftColor = param === 0.0 ? '#ef4444' : (param >= 30.0 ? '#10b981' : '#38bdf8');
-              outEl.innerHTML = `❄️☢️ <b>CRYO-IRE & BNCT NEUTRONS (${action}) :</b> ${desc} <br><strong>⚡ Gradient nsPEF / Bore : ${param} kV/cm (ou ppm) | Statut : ${stat}</strong> — Alpha 2.34 MeV.`;
+              outEl.innerHTML = I18N.t('nextgen.cryoBnct.resultTemplate', { action, desc, param, stat });
             }
             if (param === 0.0) {
-              notify(`🛑 ALERTE INTERLOCK DOSIMÉTRIE : Absorption neutronique seuil ! Coupure immédiate du faisceau (0 n/cm²/s) ! SHA-256`, 'warn');
+              notify(I18N.t('nextgen.cryoBnct.interlockNotify'), 'warn');
             } else {
-              notify(`❄️ Commande Cryo-IRE/BNCT traitée : ${action} (${stat}) — Tissu tumoral éradiqué à 100%`, 'info');
+              notify(I18N.t('nextgen.cryoBnct.processedNotify', { action, stat }), 'info');
             }
           }
 
@@ -3366,12 +3446,12 @@
             const outEl = document.getElementById('organoid-4d-output');
             if (outEl) {
               outEl.style.borderLeftColor = param === 0.0 ? '#ef4444' : (param >= 180.0 ? '#10b981' : '#10b981');
-              outEl.innerHTML = `🧬🌱 <b>ORGANOÏDES 4D & LASER 2PP (${action}) :</b> ${desc} <br><strong>⚡ Lévitation / Laser 2PP : ${param} sphéroïdes (ou mW) | Statut : ${stat}</strong> — Précision 10 µm.`;
+              outEl.innerHTML = I18N.t('nextgen.organoid4d.resultTemplate', { action, desc, param, stat });
             }
             if (param === 0.0) {
-              notify(`🛑 ALERTE INTERLOCK HYPOXIE : Risque nécrotique détecté ! Coupure immédiate de l'injection (0 sphéroïde/s) ! SHA-256`, 'warn');
+              notify(I18N.t('nextgen.organoid4d.interlockNotify'), 'warn');
             } else {
-              notify(`🌱 Commande Organoïdes 4D/2PP traitée : ${action} (${stat}) — Reconstruction fonctionnelle complète`, 'info');
+              notify(I18N.t('nextgen.organoid4d.processedNotify', { action, stat }), 'info');
             }
           }
 
@@ -3379,14 +3459,14 @@
             const outEl = document.getElementById('iknife-ac225-output');
             if (outEl) {
               outEl.style.borderLeftColor = param === 0.0 ? '#ef4444' : (param >= 760.0 ? '#f43f5e' : '#10b981');
-              outEl.innerHTML = `🔬💨 <b>iKNIFE REIMS & AC-225 (${action}) :</b> ${desc} <br><strong>⚡ m/z (ou Activité MBq) : ${param} | Statut : ${stat}</strong> — Spécificité 99.95%.`;
+              outEl.innerHTML = I18N.t('nextgen.iknifeAc225.resultTemplate', { action, desc, param, stat });
             }
             if (param === 0.0) {
-              notify(`🛑 ALERTE INTERLOCK RADIOLOGIQUE : Seuil dose alpha atteint ! Coupure immédiate d'injection Actinium-225 (0 MBq) ! SHA-256`, 'warn');
+              notify(I18N.t('nextgen.iknifeAc225.interlockNotify'), 'warn');
             } else if (param === 760.6) {
-              notify(`🛑 ALERTE iKNIFE REIMS : Marge R1 détectée (Pic PC 34:1 m/z 760.6) ! Infiltration membranaire — Extension chirurgicale requise !`, 'warn');
+              notify(I18N.t('nextgen.iknifeAc225.marginAlertNotify'), 'warn');
             } else {
-              notify(`💨 Diagnostic iKnife / Tir Ac-225 traité : ${action} (${stat}) — Marge R0 et micro-clusters sécurisés`, 'info');
+              notify(I18N.t('nextgen.iknifeAc225.processedNotify', { action, stat }), 'info');
             }
           }
 
@@ -3718,15 +3798,20 @@
           function updateLangSelectorUI() {
             const loc = I18N.currentLocale();
             const flags = { en: '🇺🇸', fr: '🇫🇷', ar: '🇩🇿', nl: '🇳🇱' };
-            const flagEl = document.getElementById('lang-selector-flag');
-            if (flagEl) flagEl.textContent = flags[loc] || '🇺🇸';
+            // Deux instances du selecteur coexistent dans le DOM (topbar de l'app
+            // principale + ecran hub de tout premier lancement) : on met a jour
+            // les deux drapeaux, chacun n'existant que si son parent est rendu.
+            ['lang-selector-flag', 'hub-lang-selector-flag'].forEach(id => {
+              const flagEl = document.getElementById(id);
+              if (flagEl) flagEl.textContent = flags[loc] || '🇺🇸';
+            });
             document.querySelectorAll('.lang-option').forEach(btn => {
               btn.classList.toggle('active', btn.dataset.lang === loc);
             });
           }
 
-          function toggleLangMenu() {
-            const menu = document.getElementById('lang-selector-menu');
+          function toggleLangMenu(menuId) {
+            const menu = document.getElementById(menuId || 'lang-selector-menu');
             if (menu) menu.classList.toggle('open');
           }
 
@@ -3737,18 +3822,23 @@
           async function uiSetLocale(loc) {
             await I18N.setLocale(loc);
             updateLangSelectorUI();
-            const menu = document.getElementById('lang-selector-menu');
-            if (menu) menu.classList.remove('open');
+            ['lang-selector-menu', 'hub-lang-selector-menu'].forEach(id => {
+              const menu = document.getElementById(id);
+              if (menu) menu.classList.remove('open');
+            });
             if (typeof renderAll === 'function') renderAll();
             if (typeof renderStagingPanel === 'function' && document.getElementById('pane-staging')) renderStagingPanel();
             if (typeof notify === 'function') notify(I18N.t('lang.changed', { language: I18N.languageName(loc) }), 'ok');
           }
 
-          // Ferme le menu de langue au clic en dehors (comportement standard d'un menu déroulant).
+          // Ferme le(s) menu(s) de langue au clic en dehors (comportement standard d'un
+          // menu déroulant) — couvre les deux instances (topbar + hub) indépendamment.
           document.addEventListener('click', (e) => {
-            const sel = document.getElementById('lang-selector');
-            const menu = document.getElementById('lang-selector-menu');
-            if (sel && menu && !sel.contains(e.target)) menu.classList.remove('open');
+            [['lang-selector', 'lang-selector-menu'], ['hub-lang-selector', 'hub-lang-selector-menu']].forEach(([selId, menuId]) => {
+              const sel = document.getElementById(selId);
+              const menu = document.getElementById(menuId);
+              if (sel && menu && !sel.contains(e.target)) menu.classList.remove('open');
+            });
           });
 
           // ════════════════════════════════════════════════
@@ -3995,57 +4085,67 @@
           // ════════════════════════════════════════════════
 
           async function markPlanAsReviewed() {
-            const notes = document.getElementById('plan-review-notes')?.value || 'Plan relu par le chirurgien assistant.';
+            const PR = (k, p) => I18N.t('reports.planReview.' + k, p);
+            const notes = document.getElementById('plan-review-notes')?.value || PR('notesFallbackReviewed');
             const badge = document.getElementById('plan-review-status-badge');
             const log   = document.getElementById('plan-review-history-log');
 
-            if (badge) { badge.textContent = 'Relu (Reviewed)'; badge.className = 'badge yellow'; }
-            if (log)   { log.innerHTML += `\n[REVIEWED] ${new Date().toISOString()} — Relu par les pairs: ${notes}`; }
-            notify('👀 Plan chirurgical marqué comme Relu par les pairs', 'ok');
+            if (badge) { badge.textContent = PR('reviewedStatus'); badge.className = 'badge yellow'; }
+            if (log)   { log.innerHTML += `\n${PR('historyReviewed', { ts: new Date().toISOString(), notes })}`; }
+            notify(PR('reviewedNotify'), 'ok');
           }
 
           async function validateAndSignPlan() {
-            const notes  = document.getElementById('plan-review-notes')?.value || 'Plan chirurgical validé et signé par le chirurgien senior.';
+            const PR = (k, p) => I18N.t('reports.planReview.' + k, p);
+            const notes  = document.getElementById('plan-review-notes')?.value || PR('notesFallbackValidated');
             const badge  = document.getElementById('plan-review-status-badge');
             const signer = document.getElementById('plan-review-signer');
             const log    = document.getElementById('plan-review-history-log');
 
-            if (badge)  { badge.textContent = 'Validé & Signé'; badge.className = 'badge green'; }
-            if (signer) { signer.textContent = 'Pr. Dupont (Chirurgien Senior) - Signé ✍️'; signer.style.color = '#10b981'; }
-            if (log)    { log.innerHTML += `\n[VALIDATED] ${new Date().toISOString()} — Signé par Pr. Dupont (SHA-256 scellé)`; }
-            notify('✍️ Plan chirurgical validé & signé avec empreinte cryptographique SHA-256', 'ok');
+            if (badge)  { badge.textContent = PR('validatedSignedStatus'); badge.className = 'badge green'; }
+            if (signer) { signer.textContent = PR('signerSignedText'); signer.style.color = '#10b981'; }
+            if (log)    { log.innerHTML += `\n${PR('historyValidated', { ts: new Date().toISOString() })}`; }
+            notify(PR('validatedNotify'), 'ok');
           }
 
           async function rejectPlanWithNotes() {
-            const notes = document.getElementById('plan-review-notes')?.value || 'Motif non précisé';
+            const PR = (k, p) => I18N.t('reports.planReview.' + k, p);
+            const notes = document.getElementById('plan-review-notes')?.value || PR('notesFallbackRejected');
             const badge = document.getElementById('plan-review-status-badge');
             const log   = document.getElementById('plan-review-history-log');
 
-            if (badge) { badge.textContent = 'Rejeté'; badge.className = 'badge red'; }
-            if (log)   { log.innerHTML += `\n[REJECTED] ${new Date().toISOString()} — Rejeté: ${notes}`; }
-            notify(`❌ Plan chirurgical rejeté — Corrections demandées: ${notes}`, 'warn');
+            if (badge) { badge.textContent = PR('rejectedStatus'); badge.className = 'badge red'; }
+            if (log)   { log.innerHTML += `\n${PR('historyRejected', { ts: new Date().toISOString(), notes })}`; }
+            notify(PR('rejectedNotify', { notes }), 'warn');
           }
 
           function generatePrintableSurgicalPlanPdf() {
             const mod = MODULES[state.mod];
             const p = mod ? mod.patient : { id: 'PAT-2026-001', nom: 'DUPONT Jean', age: 62, sex: 'M', diagnostic: 'Adénocarcinome Hépatique' };
-            const statusBadge = document.getElementById('plan-review-status-badge')?.textContent || 'Brouillon';
-            const signerName  = document.getElementById('plan-review-signer')?.textContent || 'Non signé';
-            const notes       = document.getElementById('plan-review-notes')?.value || 'Aucune note spécifique';
+            const OP = (k) => I18N.t('reports.operativePlan.' + k);
+            const statusBadge = document.getElementById('plan-review-status-badge')?.textContent || OP('planStatusFallback');
+            const signerName  = document.getElementById('plan-review-signer')?.textContent || OP('notSignedFallback');
+            const notes       = document.getElementById('plan-review-notes')?.value || OP('noSpecificNotes');
             const bili        = document.getElementById('pa-bio-bili')?.value || '15.0';
             const inr         = document.getElementById('pa-bio-inr')?.value || '1.1';
             const creat       = document.getElementById('pa-bio-creat')?.value || '85';
             const scoresTxt   = document.getElementById('pa-bio-scores-output')?.innerText || 'Child-Pugh: Classe A | MELD: 8 pts | DFG: 92 mL/min';
+            // BUG CORRIGE (trouve en traduisant) : le libelle de specialite etait fige sur
+            // "Hepato-Bilio-Pancreatique (HBP)" quel que soit le module reellement actif —
+            // utilise desormais le vrai module courant, traduit via Mx() comme le reste du catalogue.
+            const specialtyLabel = mod ? `${Mx(mod.name)} (${Mx(mod.short)})` : 'Hépato-Bilio-Pancréatique (HBP)';
+            const docLocale = I18N.currentLocale();
+            const docDir = docLocale === 'ar' ? 'rtl' : 'ltr';
 
             const printWin = window.open('', '_blank', 'width=800,height=900');
-            if (!printWin) { notify('Veuillez autoriser les pop-ups pour exporter le PDF', 'warn'); return; }
+            if (!printWin) { notify(OP('popupBlockedWarning'), 'warn'); return; }
 
             const htmlContent = `
               <!DOCTYPE html>
-              <html>
+              <html lang="${docLocale}" dir="${docDir}">
               <head>
                 <meta charset="utf-8">
-                <title>Plan Opératoire Chirurgical - ${p.id}</title>
+                <title>${OP('docTitle')} - ${p.id}</title>
                 <style>
                   body { font-family: 'Segoe UI', Arial, sans-serif; margin: 30px; color: #1e293b; line-height: 1.5; font-size: 13px; }
                   .header { display: flex; justify-content: space-between; border-bottom: 3px solid #0284c7; padding-bottom: 12px; margin-bottom: 20px; }
@@ -4064,55 +4164,55 @@
                 <div class="header">
                   <div>
                     <div class="title">🏥 GeneralSurgPlan3D</div>
-                    <div class="subtitle">RAPPORT DE PLANIFICATION CHIRURGICALE PRÉ-OPÉRATOIRE</div>
+                    <div class="subtitle">${OP('subtitle')}</div>
                   </div>
                   <div style="text-align:right">
-                    <div>Date : <strong>${new Date().toLocaleDateString('fr-FR')}</strong></div>
-                    <div>Dossier N° : <strong>${p.id}</strong></div>
+                    <div>${OP('dateLabel')} <strong>${new Date().toLocaleDateString(docLocale)}</strong></div>
+                    <div>${OP('fileNumberLabel')} <strong>${p.id}</strong></div>
                   </div>
                 </div>
 
                 <div class="section">
-                  <div class="section-title">👤 Identification du Patient &amp; Diagnostic</div>
+                  <div class="section-title">${OP('patientSection')}</div>
                   <div class="grid">
-                    <div>• Patient : <strong>${p.nom || 'DUPONT Jean'}</strong> (${p.age || 62} ans, ${p.sex || 'M'})</div>
-                    <div>• Diagnostic : <strong>${p.diagnostic || 'Adénocarcinome Hépatique'}</strong></div>
-                    <div>• Spécialité : <strong>Hépato-Bilio-Pancréatique (HBP)</strong></div>
-                    <div>• Chirurgien Référent : <strong>Dr. Martin</strong></div>
+                    <div>${OP('patientLabel')} <strong>${p.nom || 'DUPONT Jean'}</strong> (${p.age || 62} ${OP('yearsOld')}, ${p.sex || 'M'})</div>
+                    <div>${OP('diagnosisLabel')} <strong>${p.diagnostic || 'Adénocarcinome Hépatique'}</strong></div>
+                    <div>${OP('specialtyLabel')} <strong>${specialtyLabel}</strong></div>
+                    <div>${OP('referringSurgeonLabel')} <strong>${OP('referringSurgeonFallback')}</strong></div>
                   </div>
                 </div>
 
                 <div class="section">
-                  <div class="section-title">🩸 Évaluation Biologique Pré-Opératoire &amp; Scores de Risque</div>
-                  <div>• Bilirubine : <strong>${bili} µmol/L</strong> | INR : <strong>${inr}</strong> | Créatinine : <strong>${creat} µmol/L</strong></div>
+                  <div class="section-title">${OP('bioSection')}</div>
+                  <div>${OP('bilirubinLabel')} <strong>${bili} µmol/L</strong> | ${OP('inrLabel')} <strong>${inr}</strong> | ${OP('creatinineLabel')} <strong>${creat} µmol/L</strong></div>
                   <div style="margin-top:6px;padding:6px;background:#e0f2fe;border-radius:4px;color:#0369a1;font-weight:600">
                     ${scoresTxt}
                   </div>
                 </div>
 
                 <div class="section">
-                  <div class="section-title">📐 Métriques 3D de Résection &amp; Volumétrie (FLR)</div>
+                  <div class="section-title">${OP('metricsSection')}</div>
                   <div class="grid">
-                    <div>• Volume Total Organe : <strong>1 450 mL</strong></div>
-                    <div>• Volume Réséqué Prévu : <strong>420 mL (28.9%)</strong></div>
-                    <div>• Foie Restant Futur (FLR) : <strong>1 030 mL (71.1%)</strong></div>
-                    <div>• Marge Tumorale Sécurité : <strong>12.4 mm (R0 Certifié)</strong></div>
+                    <div>${OP('totalOrganVolLabel')} <strong>1 450 mL</strong></div>
+                    <div>${OP('resectedVolPlannedLabel')} <strong>420 mL (28.9%)</strong></div>
+                    <div>${OP('flrLabel')} <strong>1 030 mL (71.1%)</strong></div>
+                    <div>${OP('marginLabel')} <strong>12.4 mm (R0 Certifié)</strong></div>
                   </div>
                 </div>
 
                 <div class="section">
-                  <div class="section-title">✍️ Validation, Signatures &amp; Traçabilité Cryptographique WORM</div>
-                  <div>• Statut du Plan : <span class="badge badge-green">${statusBadge}</span></div>
-                  <div>• Signataire Senior : <strong>${signerName}</strong></div>
-                  <div>• Remarques Cliniques : <em>${notes}</em></div>
+                  <div class="section-title">${OP('validationSection')}</div>
+                  <div>${OP('planStatusLabel')} <span class="badge badge-green">${statusBadge}</span></div>
+                  <div>${OP('seniorSignerLabel')} <strong>${signerName}</strong></div>
+                  <div>${OP('clinicalNotesLabel')} <em>${notes}</em></div>
                   <div style="margin-top:6px;font-family:monospace;font-size:9px;color:#64748b">
-                    Empreinte Cryptographique WORM SHA-256 : e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+                    ${OP('cryptoFingerprintLabel')} e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
                   </div>
                 </div>
 
                 <div class="footer">
-                  ⚠️ DOCUMENT DE PLANIFICATION CHIRURGICALE — PROTOTYPE CLINIQUE EXÉCUTÉ SOUS CE MDR 2017/745 CLASS IIB PREPARATION<br>
-                  Ce document scellé cryptographiquement doit être versé au Dossier Patient Informatisé (DPI) avant l'acte opératoire.
+                  ${OP('footerLine1')}<br>
+                  ${OP('footerLine2')}
                 </div>
 
                 <script>
@@ -4123,7 +4223,7 @@
             `;
             printWin.document.write(htmlContent);
             printWin.document.close();
-            notify('📄 Génération et impression du plan opératoire PDF initialisées', 'ok');
+            notify(OP('generatingNotify'), 'ok');
           }
 
           document.addEventListener('DOMContentLoaded', init);

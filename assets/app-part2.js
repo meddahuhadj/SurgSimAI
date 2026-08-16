@@ -518,11 +518,6 @@
               if (marginMm === null) {
                 elMargin.textContent = 'N/A (aucune tumeur segmentée)';
                 elMargin.style.color = 'var(--text3)';
-              } else if (marginIncomplete) {
-                elMargin.textContent = '⚠️ Résection incomplète (tumeur hors zone réséquée)';
-                elMargin.style.color = '#ef4444';
-              } else {
-                const ok = marginMm >= 5;
                 elMargin.textContent = marginMm.toFixed(1) + ' mm' + (ok ? ' ✅' : ' ⚠️ < 5mm cible');
                 elMargin.style.color = ok ? 'var(--green)' : '#eab308';
               }
@@ -567,6 +562,116 @@
             }
             logAudit('virtual_cut', {});
           }
+
+          // ════════════════════════════════════════════════
+          //  COMPARATEUR DE STRATÉGIES (A vs B)
+          // ════════════════════════════════════════════════
+          window.cutStrategies = { A: null, B: null };
+
+          window.saveCutStrategy = function(type) {
+            // Check if recalculation is needed
+            const flrTxt = document.getElementById('cut-flr-val')?.textContent;
+            if (!flrTxt || flrTxt === '—%') {
+              notify("Veuillez d'abord calculer le FLR avant de sauvegarder.", "warn");
+              return;
+            }
+
+            const totalML = document.getElementById('cut-total-val')?.textContent || '-';
+            const resectedML = document.getElementById('cut-resected-val')?.textContent || '-';
+            const margin = document.getElementById('cut-margin-val')?.textContent || '-';
+            
+            // Get checked segments
+            const checkedSegs = [];
+            if (document.getElementById('cut-s5')?.checked) checkedSegs.push('S5');
+            if (document.getElementById('cut-s6')?.checked) checkedSegs.push('S6');
+            if (document.getElementById('cut-s7')?.checked) checkedSegs.push('S7');
+            if (document.getElementById('cut-s8')?.checked) checkedSegs.push('S8');
+            
+            const strategyDetails = checkedSegs.length > 0 
+                ? `Segments: ${checkedSegs.join(', ')}` 
+                : `Plan: ${document.getElementById('cut-angle-slider')?.value}° / ${document.getElementById('cut-offset-slider')?.value}mm`;
+
+            window.cutStrategies[type] = {
+              details: strategyDetails,
+              totalML: totalML,
+              resectedML: resectedML,
+              flr: flrTxt,
+              margin: margin,
+              timestamp: new Date().toISOString()
+            };
+
+            notify(`Stratégie ${type} sauvegardée.`, 'ok');
+            window.renderStrategyComparison();
+          };
+
+          window.renderStrategyComparison = function() {
+            const tbody = document.getElementById('strategy-comparison-body');
+            if (!tbody) return;
+
+            const stratA = window.cutStrategies.A;
+            const stratB = window.cutStrategies.B;
+
+            if (!stratA && !stratB) {
+              tbody.innerHTML = '<tr><td colspan="3" style="padding:15px; color:var(--text3);">Sauvegardez au moins une stratégie pour comparer.</td></tr>';
+              return;
+            }
+
+            tbody.innerHTML = `
+              <tr>
+                <td style="padding:6px; border-bottom:1px solid var(--border2); text-align:left; color:var(--text2);">Mode de coupe</td>
+                <td style="padding:6px; border-bottom:1px solid var(--border2);">${stratA ? stratA.details : '-'}</td>
+                <td style="padding:6px; border-bottom:1px solid var(--border2);">${stratB ? stratB.details : '-'}</td>
+              </tr>
+              <tr>
+                <td style="padding:6px; border-bottom:1px solid var(--border2); text-align:left; color:var(--text2);">Volume réséqué</td>
+                <td style="padding:6px; border-bottom:1px solid var(--border2); color:var(--orange);">${stratA ? stratA.resectedML : '-'}</td>
+                <td style="padding:6px; border-bottom:1px solid var(--border2); color:var(--orange);">${stratB ? stratB.resectedML : '-'}</td>
+              </tr>
+              <tr>
+                <td style="padding:6px; border-bottom:1px solid var(--border2); text-align:left; color:var(--text2);">Volume restant (FLR)</td>
+                <td style="padding:6px; border-bottom:1px solid var(--border2); font-weight:bold; color:var(--green);">${stratA ? stratA.flr : '-'}</td>
+                <td style="padding:6px; border-bottom:1px solid var(--border2); font-weight:bold; color:var(--green);">${stratB ? stratB.flr : '-'}</td>
+              </tr>
+              <tr>
+                <td style="padding:6px; border-bottom:1px solid var(--border2); text-align:left; color:var(--text2);">Marge oncologique</td>
+                <td style="padding:6px; border-bottom:1px solid var(--border2);">${stratA ? stratA.margin : '-'}</td>
+                <td style="padding:6px; border-bottom:1px solid var(--border2);">${stratB ? stratB.margin : '-'}</td>
+              </tr>
+              <tr>
+                <td style="padding:6px; text-align:left; color:var(--text2);">Action</td>
+                <td style="padding:6px;"><button class="btn btn-secondary" style="font-size:10px; width:100%; border-color:#38bdf8;" onclick="window.selectStrategyForPlan('A')" ${!stratA ? 'disabled' : ''}>Valider Stratégie A</button></td>
+                <td style="padding:6px;"><button class="btn btn-secondary" style="font-size:10px; width:100%; border-color:#a855f7;" onclick="window.selectStrategyForPlan('B')" ${!stratB ? 'disabled' : ''}>Valider Stratégie B</button></td>
+              </tr>
+            `;
+          };
+
+          window.selectStrategyForPlan = function(type) {
+            const strat = window.cutStrategies[type];
+            if (!strat) return;
+
+            // Injecter dans state.surgical_plan ou localStorage
+            if (!window.state) window.state = {};
+            if (!window.state.plan) window.state.plan = { snapshot: {} };
+            if (!window.state.plan.snapshot) window.state.plan.snapshot = {};
+            
+            window.state.plan.snapshot.selected_strategy = type;
+            window.state.plan.snapshot.strategy_details = strat;
+            
+            // Si le patient actuel est en cours de planification (via loadPatientDraftPlan)
+            const draftEditor = document.getElementById('plan-snapshot-json');
+            if (draftEditor) {
+                try {
+                    const snap = JSON.parse(draftEditor.value || '{}');
+                    snap.selected_strategy = type;
+                    snap.strategy_details = strat;
+                    draftEditor.value = JSON.stringify(snap, null, 2);
+                    notify(`Stratégie ${type} injectée dans le plan. N'oubliez pas de sauvegarder.`, 'ok');
+                } catch(e) {}
+            } else {
+                notify(`Stratégie ${type} sélectionnée en mémoire.`, 'ok');
+            }
+            closeModal('webgpu-cut');
+          };
 
           // ════════════════════════════════════════════════
           //  STAGING ONCOLOGIQUE — TNM / BCLC / Child-Pugh
@@ -1360,17 +1465,17 @@
             // Générer la recommandation chirurgicale standardisée
             const s = state.mpr.couinaud.tumorSegments;
             if (s.length === 0) {
-              state.mpr.couinaud.resectionSuggestion = 'Aucun segment tumoral tracé';
+              state.mpr.couinaud.resectionSuggestion = I18N.t('clinical.resectionNoTumor');
             } else if (s.includes('S5') && s.includes('S6') && s.includes('S7') && s.includes('S8')) {
-              state.mpr.couinaud.resectionSuggestion = '🔴 Hépatectomie Droite Standard (S5-S6-S7-S8)';
+              state.mpr.couinaud.resectionSuggestion = I18N.t('clinical.resectionRightHep');
             } else if (s.includes('S2') && s.includes('S3') && s.includes('S4')) {
-              state.mpr.couinaud.resectionSuggestion = '🔴 Hépatectomie Gauche Standard (S2-S3-S4)';
+              state.mpr.couinaud.resectionSuggestion = I18N.t('clinical.resectionLeftHep');
             } else if (s.includes('S6') && s.includes('S7')) {
-              state.mpr.couinaud.resectionSuggestion = '🟠 Bisegmentectomie Latérale Droite (S6-S7)';
+              state.mpr.couinaud.resectionSuggestion = I18N.t('clinical.resectionBisegRight');
             } else if (s.includes('S2') && s.includes('S3')) {
-              state.mpr.couinaud.resectionSuggestion = '🟡 Lobectomie Gauche / Bisegmentectomie S2-S3';
+              state.mpr.couinaud.resectionSuggestion = I18N.t('clinical.resectionLobLeft');
             } else {
-              state.mpr.couinaud.resectionSuggestion = `🟢 Segmentectomie Anatomique Ciblée (${s.join('+')})`;
+              state.mpr.couinaud.resectionSuggestion = I18N.t('clinical.resectionTargeted', { segments: s.join('+') });
             }
 
             logAudit('compute_couinaud_map', { tumor_segments: s, recommendation: state.mpr.couinaud.resectionSuggestion });
@@ -1381,7 +1486,7 @@
           state.mpr.margins = {
             minCutDistanceMM: 999.0,
             minVascularDistanceMM: 999.0,
-            status: 'Non calculé',
+            status: I18N.t('clinical.marginNotCalculated'),
             vascularRisk: false
           };
 
@@ -1393,7 +1498,7 @@
             const hepaticVoxels = state.mpr.segments.hepatic_vein.voxels;
 
             if (!tumorVoxels || tumorVoxels.size === 0) {
-              state.mpr.margins.status = 'Pas de tumeur';
+              state.mpr.margins.status = I18N.t('clinical.marginNoTumor');
               return;
             }
 
@@ -1445,11 +1550,11 @@
 
             // Diagnostic clinique de marge
             if (state.mpr.margins.minCutDistanceMM < 1.0) {
-              state.mpr.margins.status = '❌ MARGE R1 (< 1 mm) - Risque de récidive';
+              state.mpr.margins.status = I18N.t('clinical.marginR1');
             } else if (state.mpr.margins.minCutDistanceMM < 5.0) {
-              state.mpr.margins.status = '⚠️ MARGE ÉTROITE R0 (1-5 mm)';
+              state.mpr.margins.status = I18N.t('clinical.marginNarrowR0');
             } else {
-              state.mpr.margins.status = '✅ MARGE SÉCURISÉE R0 (> 5 mm)';
+              state.mpr.margins.status = I18N.t('clinical.marginSafeR0');
             }
 
             state.mpr.margins.vascularRisk = (state.mpr.margins.minVascularDistanceMM < 1.0);
@@ -1467,7 +1572,7 @@
             functionalFlrPct: 70.0,
             congestedML: 0.0,
             devascularizedML: 0.0,
-            status: 'Normal'
+            status: I18N.t('clinical.ischemiaNormal')
           };
 
           function simulateParenchymalIschemia() {
@@ -1487,11 +1592,11 @@
             state.mpr.ischemia.devascularizedML = parseFloat((totalML * (ischemiaFactor * 0.4) / 100).toFixed(0));
 
             if (funcFlr < 30.0) {
-              state.mpr.ischemia.status = '❌ ISCHÉMIE CRITIQUE — FLR fonctionnel insuffisant (< 30%)';
+              state.mpr.ischemia.status = I18N.t('clinical.ischemiaCritical');
             } else if (funcFlr < 40.0 && state.mpr._stagingData && state.mpr._stagingData.childPugh === 'A5') {
-              state.mpr.ischemia.status = '⚠️ ATTENTION — FLR fonctionnel limite sur foie cirrhotique';
+              state.mpr.ischemia.status = I18N.t('clinical.ischemiaWarning');
             } else {
-              state.mpr.ischemia.status = '✅ PERFUSION / DRAINAGE PRÉSERVÉS';
+              state.mpr.ischemia.status = I18N.t('clinical.perfusionPreserved');
             }
 
             logAudit('simulate_ischemia', { functional_flr_pct: state.mpr.ischemia.functionalFlrPct });
@@ -1568,15 +1673,21 @@
             const patient = (mod0 && mod0.patient && mod0.patient.nom) || "PATIENT^ANONYME";
             const pid = (mod0 && mod0.patient && mod0.patient.id) || "ID-9999";
             const ts = I18N.formatDate(new Date(), { dateStyle: 'medium', timeStyle: 'short' });
-            const surgeon = (state.settings && state.settings.chirurgien) || "Chirurgien Oncologue";
+            const R = (k) => I18N.t('reports.flightPlan.' + k);
+            const surgeon = (state.settings && state.settings.chirurgien) || R('surgeonFallback');
             const mod = document.body.getAttribute('data-mod') || 'hbp';
+            // Document imprimable ouvert dans une fenetre separee : reprend la langue et le
+            // sens d'ecriture actifs (RTL pour l'arabe) au lieu d'un lang="fr" fige, pour que
+            // ce rapport reste coherent avec la langue choisie dans l'application.
+            const docLocale = I18N.currentLocale();
+            const docDir = docLocale === 'ar' ? 'rtl' : 'ltr';
 
             const html = `
     ${'<'}!DOCTYPE html>
-    ${'<'}html lang="fr">
+    ${'<'}html lang="${docLocale}" dir="${docDir}">
     <head>
       <meta charset="UTF-8">
-      <title>Plan de Vol Chirurgical — ${patient}</title>
+      <title>${R('title')} — ${patient}</title>
       <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; margin: 30px; line-height: 1.5; }
         .header { border-bottom: 3px solid #0ea5e9; padding-bottom: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
@@ -1599,51 +1710,51 @@
     ${'<'}body>
       <div class="header">
         <div>
-          <h1>✈️ Plan de Vol Chirurgical</h1>
-          <div style="font-size:12px;color:#64748b;margin-top:4px">GeneralSurgPlan3D MIMO — Oncology Suite 2026</div>
+          <h1>✈️ ${R('title')}</h1>
+          <div style="font-size:12px;color:#64748b;margin-top:4px">${R('subtitle')}</div>
         </div>
         <div style="text-align:right">
-          <span class="badge" style="background:#eab308;color:#1e293b" title="Prototype non certifié — voir 🛡️ Conformité MDR">PROTOTYPE — NON CERTIFIÉ</span>
-          <div style="font-size:12px;margin-top:6px">Date : <strong>${ts}</strong></div>
+          <span class="badge" style="background:#eab308;color:#1e293b" title="${R('prototypeTitle')}">${R('prototypeBadge')}</span>
+          <div style="font-size:12px;margin-top:6px">${R('dateLabel')} <strong>${ts}</strong></div>
         </div>
       </div>
 
       <div class="grid" style="margin-bottom:15px">
         <div class="section" style="margin:0">
-          <div class="section-title">👤 Identification Patient</div>
-          <div class="row"><span class="label">Nom :</span><span class="val">${patient}</span></div>
-          <div class="row"><span class="label">ID Patient / PACS :</span><span class="val">${pid}</span></div>
-          <div class="row"><span class="label">Chirurgien responsable :</span><span class="val">${surgeon}</span></div>
-          <div class="row"><span class="label">Spécialité :</span><span class="val">${mod.toUpperCase()}</span></div>
+          <div class="section-title">${R('patientSection')}</div>
+          <div class="row"><span class="label">${R('nameLabel')}</span><span class="val">${patient}</span></div>
+          <div class="row"><span class="label">${R('patientIdLabel')}</span><span class="val">${pid}</span></div>
+          <div class="row"><span class="label">${R('surgeonLabel')}</span><span class="val">${surgeon}</span></div>
+          <div class="row"><span class="label">${R('specialtyLabel')}</span><span class="val">${mod.toUpperCase()}</span></div>
         </div>
         <div class="section" style="margin:0">
-          <div class="section-title">🎯 Stadification & Décision</div>
-          <div class="row"><span class="label">Classification TNM :</span><span class="val">${sd.T || '?'}${sd.N || '?'}${sd.M || '?'}</span></div>
-          <div class="row"><span class="label">Score BCLC / Child :</span><span class="val">${sd.bclc || 'N/A'} (Child ${sd.childPugh || 'N/A'})</span></div>
-          <div class="row"><span class="label">Statut global :</span><span class="val" style="color:#0284c7">${sd.decisionText || 'Non calculée'}</span></div>
+          <div class="section-title">${R('stagingSection')}</div>
+          <div class="row"><span class="label">${R('tnmLabel')}</span><span class="val">${sd.T || '?'}${sd.N || '?'}${sd.M || '?'}</span></div>
+          <div class="row"><span class="label">${R('bclcLabel')}</span><span class="val">${sd.bclc || 'N/A'} (Child ${sd.childPugh || 'N/A'})</span></div>
+          <div class="row"><span class="label">${R('statusLabel')}</span><span class="val" style="color:#0284c7">${sd.decisionText || R('notCalculated')}</span></div>
         </div>
       </div>
 
       <div class="section">
-        <div class="section-title">🟢 Cartographie Vasculaire & Segmentectomie Couinaud (Brisbane 2000)</div>
-        <div class="row"><span class="label">Segments tumoraux infiltrés :</span><span class="val" style="color:#ef4444;font-size:14px">${state.mpr.couinaud.tumorSegments.join(', ') || 'Aucun'}</span></div>
-        <div class="row"><span class="label">Geste chirurgical recommandé :</span><span class="val" style="color:#0f172a;font-size:14px">${state.mpr.couinaud.resectionSuggestion}</span></div>
+        <div class="section-title">${R('vascularSection')}</div>
+        <div class="row"><span class="label">${R('tumorSegmentsLabel')}</span><span class="val" style="color:#ef4444;font-size:14px">${state.mpr.couinaud.tumorSegments.join(', ') || R('none')}</span></div>
+        <div class="row"><span class="label">${R('resectionLabel')}</span><span class="val" style="color:#0f172a;font-size:14px">${state.mpr.couinaud.resectionSuggestion}</span></div>
       </div>
 
       <div class="grid">
         <div class="section" style="margin:0">
-          <div class="section-title">🔵 Marges de Sécurité 3D (R0/R1)</div>
-          <div class="row"><span class="label">Distance Tumeur - Coupe :</span><span class="val">${state.mpr.margins.minCutDistanceMM} mm</span></div>
-          <div class="row"><span class="label">Distance Tumeur - Vaisseaux :</span><span class="val">${state.mpr.margins.minVascularDistanceMM} mm</span></div>
+          <div class="section-title">${R('marginsSection')}</div>
+          <div class="row"><span class="label">${R('distCutLabel')}</span><span class="val">${state.mpr.margins.minCutDistanceMM} mm</span></div>
+          <div class="row"><span class="label">${R('distVesselLabel')}</span><span class="val">${state.mpr.margins.minVascularDistanceMM} mm</span></div>
           <div class="alert-box ${state.mpr.margins.minCutDistanceMM < 1.0 ? 'alert-danger' : state.mpr.margins.minCutDistanceMM < 5.0 ? 'alert-warn' : 'alert-ok'}">
             ${state.mpr.margins.status}
           </div>
         </div>
         <div class="section" style="margin:0">
-          <div class="section-title">🟡 Volumétrie & Ischémie Parenchymateuse</div>
-          <div class="row"><span class="label">FLR Anatomique brut :</span><span class="val">${state.mpr.lastFLR ? state.mpr.lastFLR.flrPct : 70.0} % (${state.mpr.lastFLR ? (state.mpr.lastFLR.totalML - state.mpr.lastFLR.resectedML) : 875} mL)</span></div>
-          <div class="row"><span class="label">FLR Fonctionnel vascularisé :</span><span class="val" style="color:#0284c7;font-size:14px">${state.mpr.ischemia.functionalFlrPct} %</span></div>
-          <div class="row"><span class="label">Volume congestionné / nécrosé :</span><span class="val" style="color:#f97316">${state.mpr.ischemia.congestedML} mL</span></div>
+          <div class="section-title">${R('volumetrySection')}</div>
+          <div class="row"><span class="label">${R('flrRawLabel')}</span><span class="val">${state.mpr.lastFLR ? state.mpr.lastFLR.flrPct : 70.0} % (${state.mpr.lastFLR ? (state.mpr.lastFLR.totalML - state.mpr.lastFLR.resectedML) : 875} mL)</span></div>
+          <div class="row"><span class="label">${R('flrFunctionalLabel')}</span><span class="val" style="color:#0284c7;font-size:14px">${state.mpr.ischemia.functionalFlrPct} %</span></div>
+          <div class="row"><span class="label">${R('congestedVolLabel')}</span><span class="val" style="color:#f97316">${state.mpr.ischemia.congestedML} mL</span></div>
           <div class="alert-box ${state.mpr.ischemia.functionalFlrPct < 30.0 ? 'alert-danger' : 'alert-ok'}">
             ${state.mpr.ischemia.status}
           </div>
@@ -1652,12 +1763,12 @@
 
       <div class="footer">
         <div>
-          Empreinte de chaînage (hash local non cryptographique, djb2 — pas du SHA-256, à ne pas présenter comme une preuve d'intégrité légale) :<br>
+          ${R('hashFootnote')}<br>
           <strong style="font-family:monospace;color:#334155">${(() => { const l = currentPatientAuditLog(); return l.length > 0 ? l[l.length - 1].hash : '0000000000000000'; })()}</strong>
         </div>
         <div style="text-align:right">
-          <button onclick="window.print()" class="no-print" style="background:#0ea5e9;color:#fff;border:none;padding:8px 16px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:13px">🖨️ Imprimer / Sauvegarder PDF</button>
-          <div style="margin-top:6px">Signature électronique : <strong>${surgeon}</strong></div>
+          <button onclick="window.print()" class="no-print" style="background:#0ea5e9;color:#fff;border:none;padding:8px 16px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:13px">${R('printBtn')}</button>
+          <div style="margin-top:6px">${R('signatureLabel')} <strong>${surgeon}</strong></div>
         </div>
       </div>
     ${'<'}/body>

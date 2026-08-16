@@ -76,10 +76,21 @@ jobs:
         # la purge du cache chez tous les utilisateurs après chaque déploiement.
         # Sans cette étape, les utilisateurs verraient l'ancienne version depuis
         # leur cache local jusqu'à expiration (potentiellement des jours).
+        #
+        # BUG CORRIGÉ : l'ancien pattern sed cherchait littéralement
+        # "generalsurg-shell-v2-[0-9]*", qui ne correspondait plus au contenu
+        # réel de sw.js depuis un renommage (passé à "surgsim-shell-v3...",
+        # sans suffixe numérique) — le sed ne trouvait donc plus rien à
+        # remplacer, échouait silencieusement (aucune erreur, sed sans match
+        # ne fait juste rien) et CACHE_VERSION n'était plus jamais bumpé en
+        # production. Remplacé par un pattern générique qui cible la ligne de
+        # déclaration elle-même, peu importe la valeur qu'elle contient
+        # aujourd'hui ou demain.
         run: |
           BUILD_TS=$(date +%Y%m%d%H%M%S)
-          sed -i "s/generalsurg-shell-v2-[0-9]*/generalsurg-shell-v2-${BUILD_TS}/" sw.js
-          echo "✅ CACHE_VERSION mis à jour : generalsurg-shell-v2-${BUILD_TS}"
+          sed -i "s/^const CACHE_VERSION = '[^']*';/const CACHE_VERSION = 'surgsim-shell-${BUILD_TS}';/" sw.js
+          echo "✅ CACHE_VERSION mis à jour :"
+          grep "CACHE_VERSION = " sw.js
 
       - name: Déclencher le redéploiement Render
         # Appelle le Deploy Hook Render (URL secrète → aucun token exposé)

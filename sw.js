@@ -24,16 +24,23 @@
 // =============================================================================
 
 // ── Version ──────────────────────────────────────────────────────────────────
-// Mettez à jour ce timestamp (ou injectez-le via votre pipeline CI/CD) à
-// chaque déploiement : c'est la clé de cache. L'ancien cache est supprimé
-// automatiquement lors de l'activation du nouveau SW.
-// En CI/CD, remplacez cette ligne par :
-//   const CACHE_VERSION = 'generalsurg-shell-__BUILD_TIMESTAMP__';
-// et substituez __BUILD_TIMESTAMP__ avec `date +%Y%m%d%H%M%S` dans le pipeline.
-const CACHE_VERSION = 'generalsurg-shell-v2-20260731';
+// Cette valeur est la clé de cache : la changer force la purge de l'ancien
+// cache chez tous les utilisateurs (voir l'étape "activate" plus bas).
+// Déjà automatisé : .github/workflows/deploy.yml réécrit cette ligne avec un
+// timestamp de build à chaque déploiement (sed ancré en tout début de ligne
+// avec ^, donc il ne matche que cette déclaration réelle, jamais un exemple
+// mentionné dans un commentaire) — aucune action manuelle nécessaire à
+// chaque release.
+const CACHE_VERSION = 'surgsim-shell-v3.1-full-precache';
 
 // ── Ressources du shell à pré-cacher ─────────────────────────────────────────
 // Uniquement des ressources statiques versionnées, jamais de données patient.
+// Liste alignée sur TOUTES les balises <script>/<link> chargées par
+// index.html (voir grep '<script src=' index.html) — une ressource oubliée
+// ici continue de fonctionner en ligne (réseau direct, non interceptée) mais
+// casse silencieusement l'usage hors-ligne réel puisqu'elle n'est jamais
+// mise en cache par ce service worker. app-modes.js/app-or.js/catalog-i18n.js
+// et les 4 fichiers assets/v2/*.js manquaient ici jusqu'à ce correctif.
 const PRECACHE_URLS = [
   '/',
   '/index.html',
@@ -44,6 +51,13 @@ const PRECACHE_URLS = [
   '/assets/app-part2.js',
   '/assets/app-part3.js',
   '/assets/app-bootstrap.js',
+  '/assets/app-modes.js',
+  '/assets/app-or.js',
+  '/assets/catalog-i18n.js',
+  '/assets/v2/app-core-3d.js',
+  '/assets/v2/app-academic.js',
+  '/assets/v2/app-simulation.js',
+  '/assets/v2/app-research.js',
   '/assets/icons/icon-192.png',
   '/assets/icons/icon-512.png',
   '/assets/icons/icon-maskable-512.png',

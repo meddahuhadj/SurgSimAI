@@ -21,14 +21,20 @@ function assert(cond, msg) {
 }
 
 // Extraction : de "const I18N_EMBEDDED = " jusqu'au "})();" qui clôt l'IIFE "const I18N = ...".
+// Marqueur de l'IIFE en RegExp (pas une chaîne figée) : tolère les variations d'espacement
+// ("function ()" vs "function()") qu'un reformatage du fichier source peut introduire sans
+// changer le comportement — une correspondance de chaîne exacte avait rendu ce test cassé en
+// silence (plus aucune exécution possible) après un simple reformatage du code réel.
 const startMarker = 'const I18N_EMBEDDED = ';
 const start = html.indexOf(startMarker);
 if (start === -1) throw new Error('const I18N_EMBEDDED introuvable dans le HTML');
-const iifeMarker = 'const I18N = (function(){';
-const iifeStart = html.indexOf(iifeMarker, start);
-if (iifeStart === -1) throw new Error('const I18N = (function(){ introuvable');
+const iifeRe = /const\s+I18N\s*=\s*\(function\s*\(\)\s*\{/;
+const iifeMatch = html.slice(start).match(iifeRe);
+if (!iifeMatch) throw new Error("const I18N = (function () { introuvable (motif : " + iifeRe + ")");
+const iifeStart = start + iifeMatch.index;
+const iifeDeclLength = iifeMatch[0].length;
 // Depuis le début de l'IIFE, on cherche le "})();" correspondant en comptant les accolades.
-let i = html.indexOf('{', iifeStart);
+let i = iifeStart + iifeDeclLength - 1; // sur le "{" ouvrant capturé par le motif
 let depth = 0;
 for (; i < html.length; i++) {
   if (html[i] === '{') depth++;
@@ -38,7 +44,7 @@ for (; i < html.length; i++) {
 const iifeEnd = html.indexOf(';', i) + 1;
 let code = html.slice(start, iifeEnd);
 // `const` déclaré dans un eval() direct reste scopé à cet eval (ES6) — on l'expose sur global.
-code = code.replace('const I18N = (function(){', 'global.I18N = (function(){');
+code = code.replace(iifeRe, 'global.I18N = (function () {');
 
 // ── Mocks minimaux ──
 global.localStorage = {
