@@ -18,6 +18,7 @@ from clinical_scores import (  # noqa: E402
     compute_bilan_net,
     compute_glasgow,
     compute_news2,
+    compute_resection_tradeoff_score,
     compute_sofa,
     news2_escalation,
     sepsis_organ_dysfunction,
@@ -186,4 +187,52 @@ def test_news2_escalation_levels():
     assert news2_escalation(6)["level"] == "medium"
     assert news2_escalation(7)["level"] == "high"
     assert news2_escalation(20)["level"] == "high"
+
+
+# ---------------------------------------------------------------------------
+# Score de compromis chirurgical (Scenario Graph — trade-off risque/FLR)
+# ---------------------------------------------------------------------------
+
+
+def test_tradeoff_score_flr_above_threshold_and_no_hepatopathy_is_low_risk():
+    report = compute_resection_tradeoff_score(remnant_pct=45.0, flr_threshold_pct=25.0)
+    assert report["risk_band"] == "low"
+    assert report["components"]["flr_deficit_pct"] == 0.0
+    assert report["components"]["child_pugh_class"] is None
+
+
+def test_tradeoff_score_flr_deficit_increases_score():
+    safe = compute_resection_tradeoff_score(remnant_pct=30.0, flr_threshold_pct=25.0)
+    deficit = compute_resection_tradeoff_score(remnant_pct=15.0, flr_threshold_pct=25.0)
+    assert deficit["tradeoff_score"] > safe["tradeoff_score"]
+    assert deficit["components"]["flr_deficit_pct"] == 10.0
+
+
+def test_tradeoff_score_child_pugh_class_c_dominates_even_with_safe_flr():
+    report = compute_resection_tradeoff_score(remnant_pct=45.0, flr_threshold_pct=25.0, child_pugh_class="C")
+    assert report["risk_band"] == "high"
+    assert report["components"]["child_pugh_base_mortality_pct"] == 70.0
+
+
+def test_tradeoff_score_is_case_insensitive_on_child_pugh_class():
+    a = compute_resection_tradeoff_score(remnant_pct=40.0, flr_threshold_pct=25.0, child_pugh_class="b")
+    b = compute_resection_tradeoff_score(remnant_pct=40.0, flr_threshold_pct=25.0, child_pugh_class="B")
+    assert a["tradeoff_score"] == b["tradeoff_score"]
+
+
+def test_tradeoff_score_vessel_margin_deficit_adds_penalty_and_is_capped():
+    no_deficit = compute_resection_tradeoff_score(remnant_pct=40.0, flr_threshold_pct=25.0)
+    with_deficit = compute_resection_tradeoff_score(remnant_pct=40.0, flr_threshold_pct=25.0,
+                                                      vessel_margin_deficit_mm=5.0)
+    extreme_deficit = compute_resection_tradeoff_score(remnant_pct=40.0, flr_threshold_pct=25.0,
+                                                         vessel_margin_deficit_mm=999.0)
+    assert with_deficit["tradeoff_score"] > no_deficit["tradeoff_score"]
+    assert with_deficit["components"]["vessel_penalty_points"] == 10.0
+    assert extreme_deficit["components"]["vessel_penalty_points"] == 20.0  # plafonné
+
+
+def test_tradeoff_score_never_exceeds_100():
+    report = compute_resection_tradeoff_score(remnant_pct=0.0, flr_threshold_pct=90.0,
+                                                child_pugh_class="C", vessel_margin_deficit_mm=999.0)
+    assert report["tradeoff_score"] == 100.0
     assert news2_escalation(None)["level"] == "low"

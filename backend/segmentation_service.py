@@ -164,6 +164,35 @@ def _label_volumes_ml(nifti_path: Path, label_names: Dict[int, str]) -> Dict[str
 # ------------------------------------------------------------------
 # Maillage 3D réel (marching cubes -> GLB) pour un label donné
 # ------------------------------------------------------------------
+def get_job_or_raise(job_id: str) -> dict:
+    """Retourne le job `job_id` s'il existe et est terminé — logique de garde
+    partagée par les modules avals (twin_pipeline, radiomics_pipeline) qui
+    reconstruisent quelque chose à partir des fichiers NIfTI d'un job déjà
+    segmenté. Lève KeyError si le job est inconnu, ValueError s'il n'est pas
+    terminé."""
+    job = _JOBS.get(job_id)
+    if job is None:
+        raise KeyError(f"job_id inconnu : {job_id}")
+    if job.get("status") != "done":
+        raise ValueError(f"Job pas encore terminé (status={job.get('status')}).")
+    return job
+
+
+def get_label_source(job_id: str, structure: str) -> dict:
+    """Retourne {"nifti_path", "label_value"} pour `structure` dans le job
+    `job_id` (voir `_maybe_build_mesh`, qui peuple `label_sources`). Lève
+    KeyError si le job ou la structure sont inconnus, ValueError si le job
+    n'est pas terminé."""
+    job = get_job_or_raise(job_id)
+    sources = job.get("label_sources", {})
+    if structure not in sources:
+        raise KeyError(
+            f"Structure '{structure}' indisponible pour ce job (structures connues : "
+            f"{sorted(sources)})."
+        )
+    return sources[structure]
+
+
 def _maybe_build_mesh(job_id: str, nifti_path: Path, label_value: int, name: str,
                        color: tuple, job: dict) -> Optional[str]:
     """
@@ -222,6 +251,13 @@ def _run_segmentation_job(job_id: str, nifti_input: Path, patient_id: str,
     anesthesie_reanimation n'a pas de segmentation organique : l'endpoint
     le refuse proprement en amont."""
     job = _JOBS[job_id]
+    # Chemin du CT source (intensités HU réelles) et patient_id conservés pour
+    # les usages aval qui ont besoin des valeurs de gris, pas seulement des
+    # volumes/labels — voir radiomics_pipeline.py (contrairement à
+    # label_sources, qui pointe vers les NIfTI de LABELS produits par
+    # l'inférence, pas le CT d'origine).
+    job["input_nifti_path"] = str(nifti_input)
+    job["patient_id"] = patient_id
     job["progress"] = f"Pipeline de segmentation pour la spécialité '{specialty}'..."
     if specialty in spec.GENERIC_SPECIALTIES:
         _run_generic_specialty_job(job_id, nifti_input, patient_id, specialty)

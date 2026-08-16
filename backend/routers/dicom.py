@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 import models
 import resilience
 from db import get_db
-from deps import get_current_user, write_audit
+from deps import get_current_user, get_scoped_patient, write_audit
 from schemas import DicomMetadata, DicomUploadResponse, SegmentationStartResponse
 
 router = APIRouter(tags=["dicom"])
@@ -63,8 +63,7 @@ except Exception as e:  # noqa: BLE001
 async def upload_dicom(patient_id: str, study_uid: str, modality: str = "CT", slice_thickness_mm: float = 1.0,
                         file: UploadFile = File(...), request: Request = None,
                         current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not db.get(models.Patient, patient_id):
-        raise HTTPException(404, "Patient introuvable.")
+    get_scoped_patient(patient_id, current, db)
     content = await file.read()
     sha = hashlib.sha256(content).hexdigest()[:16]
     series_uid = str(uuid.uuid4())
@@ -93,6 +92,10 @@ async def upload_dicom(patient_id: str, study_uid: str, modality: str = "CT", sl
 
 @router.get("/dicom/{patient_id}", response_model=List[DicomMetadata])
 async def list_dicom(patient_id: str, current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Corrigé : cet endpoint ne vérifiait même pas que le patient existait,
+    # encore moins son institution — un patient_id d'une autre institution
+    # aurait pu retourner de vraies séries DICOM.
+    get_scoped_patient(patient_id, current, db)
     return db.query(models.DicomSeries).filter(models.DicomSeries.patient_id == patient_id).all()
 
 
@@ -116,6 +119,7 @@ async def segment_from_existing_series(series_id: str, request: Request,
     series = db.get(models.DicomSeries, series_id)
     if not series:
         raise HTTPException(404, "Série DICOM introuvable.")
+    get_scoped_patient(series.patient_id, current, db)
     if not series.local_path:
         raise HTTPException(
             400,

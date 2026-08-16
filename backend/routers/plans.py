@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 import models
 from db import get_db
-from deps import get_current_user, write_audit
+from deps import get_current_user, get_scoped_patient, write_audit
 from schemas import (
     SurgicalPlanIn, SurgicalPlanOut, SurgicalPlanRejectIn,
     SurgicalPlanReviewIn, SurgicalPlanUpdate, SurgicalPlanValidateIn,
@@ -44,7 +44,11 @@ _EDITABLE = {DRAFT}
 _MUTABLE = {DRAFT, REVIEWED}
 
 
-def _get_plan(db: Session, patient_id: str, plan_id: str) -> models.SurgicalPlan:
+def _get_plan(db: Session, patient_id: str, plan_id: str, current: models.User) -> models.SurgicalPlan:
+    # get_scoped_patient lève 404 si le patient n'appartient pas à l'institution
+    # de `current` — appelé AVANT de chercher le plan, pour qu'un plan_id connu
+    # d'un autre tenant ne fuite jamais, même indirectement.
+    get_scoped_patient(patient_id, current, db)
     plan = db.get(models.SurgicalPlan, plan_id)
     if not plan or plan.patient_id != patient_id:
         raise HTTPException(404, "Plan introuvable pour ce patient.")
@@ -62,8 +66,7 @@ def _next_version(db: Session, patient_id: str) -> int:
 @router.get("/patients/{patient_id}/plans", response_model=List[SurgicalPlanOut])
 async def list_plans(patient_id: str,
                      current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not db.get(models.Patient, patient_id):
-        raise HTTPException(404, "Patient introuvable.")
+    get_scoped_patient(patient_id, current, db)
     return (db.query(models.SurgicalPlan)
             .filter(models.SurgicalPlan.patient_id == patient_id)
             .order_by(models.SurgicalPlan.version.desc())
@@ -73,8 +76,7 @@ async def list_plans(patient_id: str,
 @router.post("/patients/{patient_id}/plans", response_model=SurgicalPlanOut, status_code=201)
 async def create_plan(patient_id: str, body: SurgicalPlanIn, request: Request,
                       current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not db.get(models.Patient, patient_id):
-        raise HTTPException(404, "Patient introuvable.")
+    get_scoped_patient(patient_id, current, db)
 
     # Attribution du numéro de version = SELECT puis INSERT avec UNIQUE(patient_id,
     # version) : deux chirurgiens créant un plan en parallèle (vrai flux multi-utilisateur)
@@ -115,7 +117,7 @@ async def create_plan(patient_id: str, body: SurgicalPlanIn, request: Request,
 @router.get("/patients/{patient_id}/plans/{plan_id}", response_model=SurgicalPlanOut)
 async def get_plan(patient_id: str, plan_id: str,
                    current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return _get_plan(db, patient_id, plan_id)
+    return _get_plan(db, patient_id, plan_id, current)
 
 
 @router.put("/patients/{patient_id}/plans/{plan_id}", response_model=SurgicalPlanOut)
@@ -123,7 +125,7 @@ async def update_plan(patient_id: str, plan_id: str, body: SurgicalPlanUpdate, r
                       current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Modifie un plan tant qu'il est en brouillon, et uniquement par son auteur.
     Un plan relu, validé ou rejeté est figé : on en crée une nouvelle version."""
-    plan = _get_plan(db, patient_id, plan_id)
+    plan = _get_plan(db, patient_id, plan_id, current)
     if plan.status not in _EDITABLE:
         raise HTTPException(409, f"Plan en statut '{plan.status}' — figé. Créez une nouvelle version.")
     if plan.author_id is not None and plan.author_id != current.id:
@@ -153,7 +155,7 @@ async def review_plan(patient_id: str, plan_id: str, body: SurgicalPlanReviewIn,
                       current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Passe le plan de 'draft' à 'reviewed' (relecture par le staff) — étape
     intermédiaire avant la signature finale."""
-    plan = _get_plan(db, patient_id, plan_id)
+    plan = _get_plan(db, patient_id, plan_id, current)
     if plan.status not in _EDITABLE:
         raise HTTPException(409, f"Plan en statut '{plan.status}' — non modifiable.")
     plan.status = REVIEWED
@@ -175,7 +177,7 @@ async def validate_plan(patient_id: str, plan_id: str, body: SurgicalPlanValidat
                         current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Valide et signe le plan : engagement du chirurgien. Un plan validé est
     figé définitivement (source de vérité pour le bloc)."""
-    plan = _get_plan(db, patient_id, plan_id)
+    plan = _get_plan(db, patient_id, plan_id, current)
     if plan.status not in _MUTABLE:
         raise HTTPException(409, f"Plan en statut '{plan.status}' — non validable.")
     if plan.status == VALIDATED:
@@ -200,7 +202,7 @@ async def reject_plan(patient_id: str, plan_id: str, body: SurgicalPlanRejectIn,
                       current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Refuse le plan (draft ou reviewed) avec un motif obligatoire. Le plan
     reste consultable (traçabilité), mais une nouvelle version est requise."""
-    plan = _get_plan(db, patient_id, plan_id)
+    plan = _get_plan(db, patient_id, plan_id, current)
     if plan.status not in _MUTABLE:
         raise HTTPException(409, f"Plan en statut '{plan.status}' — non rejetable.")
     if not body.comment or not body.comment.strip():
@@ -215,3 +217,43 @@ async def reject_plan(patient_id: str, plan_id: str, body: SurgicalPlanRejectIn,
                 patient_id=patient_id, niveau="warn",
                 metadata={"plan_id": plan.id, "version": plan.version, "comment": body.comment[:200]})
     return plan
+
+
+@router.get("/patients/{patient_id}/plans/{plan_id}/export/fhir")
+async def export_plan_fhir(patient_id: str, plan_id: str, request: Request,
+                            current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Exporte le plan chirurgical persistant sous forme d'un Bundle FHIR R4 (CarePlan + Procedure)."""
+    plan = _get_plan(db, patient_id, plan_id, current)
+    pat = db.get(models.Patient, patient_id)
+
+    bundle = {
+        "resourceType": "Bundle",
+        "type": "collection",
+        "entry": [
+            {
+                "resource": {
+                    "resourceType": "CarePlan",
+                    "id": f"careplan-{plan.id}",
+                    "status": "active" if plan.status == VALIDATED else "draft",
+                    "intent": "plan",
+                    "subject": {"reference": f"Patient/{pat.id}", "display": f"{pat.nom}"},
+                    "period": {"start": plan.created_at.isoformat()},
+                    "author": {"display": plan.author_name},
+                    "note": [{"text": plan.notes or "Planification opératoire"}]
+                }
+            },
+            {
+                "resource": {
+                    "resourceType": "Procedure",
+                    "id": f"procedure-{plan.id}",
+                    "status": "completed" if plan.status == VALIDATED else "preparation",
+                    "code": {"text": plan.procedure},
+                    "subject": {"reference": f"Patient/{pat.id}"},
+                    "performer": [{"actor": {"display": plan.signed_by or plan.author_name}}],
+                    "outcome": {"text": f"Statut plan: {plan.status}"}
+                }
+            }
+        ]
+    }
+    write_audit(db, request, "Export FHIR CarePlan/Procedure", "surgical_plan", user=current, patient_id=patient_id)
+    return bundle

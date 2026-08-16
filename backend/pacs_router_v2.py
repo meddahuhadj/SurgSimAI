@@ -29,10 +29,18 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+import models
 from db import get_db
+from deps import get_current_user, get_scoped_patient
 import security as sec
 
 router = APIRouter(prefix="/api/v2", tags=["pacs-nextgen-v2"])
+
+# ⚠️ CORRIGÉ : aucun des 5 endpoints de ce routeur ne vérifiait l'authentification
+# (pas de Depends(get_current_user)) malgré des données patient/étude en jeu —
+# routeur monté sans garde alors que tous les autres routers patients de ce
+# dépôt exigent un JWT. Ajouté ici, avec en plus la vérification d'isolation
+# tenant (get_scoped_patient) sur l'endpoint qui prend un patient_id direct.
 
 DICOM_STORAGE_DIR = Path(os.getenv("DICOM_STORAGE_DIR", "./storage/dicom_series")).resolve()
 DICOM_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -71,6 +79,7 @@ async def stream_voxel_bricks(
     series_uid: str,
     lod_level: int = 0,
     request: Request = None,
+    current: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -94,6 +103,7 @@ async def export_dicom_seg(
     study_uid: str,
     series_uid: str,
     payload: DicomSegExportRequest,
+    current: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -150,6 +160,7 @@ async def export_dicom_seg(
 async def export_dicom_sr(
     study_uid: str,
     payload: DicomSrExportRequest,
+    current: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -191,11 +202,13 @@ async def export_dicom_sr(
 # ---------------------------------------------------------------------------
 
 @router.get("/fhir/r5/Patient/{patient_id}/DigitalTwins")
-async def get_patient_digital_twins(patient_id: str, db: Session = Depends(get_db)):
+async def get_patient_digital_twins(patient_id: str, current: models.User = Depends(get_current_user),
+                                     db: Session = Depends(get_db)):
     """
     Retourne la liste des Jumeaux Numériques 3D d'un patient sous format de ressource FHIR R5
     personnalisée (ImagingStudy + BiomedicalDeviceExtension).
     """
+    get_scoped_patient(patient_id, current, db)
     try:
         rows = db.execute(text("""
             SELECT id, version, status, organ_target, created_at
@@ -228,10 +241,13 @@ async def get_patient_digital_twins(patient_id: str, db: Session = Depends(get_d
     }
 
 @router.post("/fhir/r5/Procedure")
-async def create_or_sync_fhir_procedure(payload: FhirProcedureRequest, db: Session = Depends(get_db)):
+async def create_or_sync_fhir_procedure(payload: FhirProcedureRequest,
+                                         current: models.User = Depends(get_current_user),
+                                         db: Session = Depends(get_db)):
     """
     Synchronise le planning chirurgical avec le DPI / HIS hospitalier via la ressource FHIR R5 Procedure.
     """
+    get_scoped_patient(payload.patient_id, current, db)
     proc_id = str(uuid.uuid4())
     procedure_resource = {
         "resourceType": "Procedure",

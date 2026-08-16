@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 import models
 import security as sec
 import resilience
+import tenancy
 from db import get_db
 from deps import get_current_user, write_audit
 from schemas import (
@@ -156,9 +157,16 @@ async def register(creds: UserRegisterRequest, request: Request, db: Session = D
         raise HTTPException(400, "Utilisateur déjà existant.")
     if len(creds.password) < 8:
         raise HTTPException(400, "Mot de passe trop court (min 8 caractères).")
+    try:
+        inst_id = tenancy.resolve_institution_id(
+            db, institution_id=creds.institution_id,
+            personal_institution_name=f"{creds.full_name or creds.username} (Personal)")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     db.add(models.User(
         username=creds.username, full_name=creds.full_name or creds.username,
         role="surgeon", hashed_password=sec.hash_password(creds.password),
+        institution_id=inst_id,
     ))
     db.commit()
     return {"msg": "Utilisateur créé. Connectez-vous via /auth/token, puis activez la 2FA via /auth/2fa/setup."}

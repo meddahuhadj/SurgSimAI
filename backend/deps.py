@@ -43,7 +43,63 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     user = db.query(models.User).filter(models.User.username == username).first()
     if user is None or not user.is_active:
         raise cred_exc
+    import os
+    if os.getenv("APP_ENV") == "production" and not getattr(user, "totp_enabled", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Double authentification (2FA/MFA) obligatoire en environnement de production HDS. Veuillez activer votre 2FA dans votre profil.",
+        )
     return user
+
+
+def get_scoped_patient(patient_id: str, current_user: models.User, db: Session) -> models.Patient:
+    """Récupère `patient_id`, borné à l'institution de `current_user` — SEUL
+    point d'accès patient qui doit être utilisé par les routers (voir
+    tenancy.py pour comment un utilisateur obtient son institution_id).
+
+    Répond 404 aussi bien pour un patient inexistant que pour un patient
+    existant mais appartenant à une AUTRE institution — jamais 403, pour ne
+    pas révéler par le code HTTP l'existence d'un patient chez un autre
+    tenant. C'est une différence de comportement volontaire par rapport à
+    l'ancien `db.get(models.Patient, patient_id)` utilisé nu dans les
+    routers, qui ne vérifiait aucune frontière de tenant.
+
+    Tous les endpoints de ce dépôt (hors backend/exploratory/, périmètre R&D
+    séparé) qui acceptent un `patient_id` direct appellent cette fonction —
+    patients, volumetrie, plans, anesthesie, twin, dicom, pacs_router,
+    pacs_router_v2, commercial_suite, compliance, or_planning,
+    voice_llm_service. Si un nouveau router accède à un patient sans passer
+    par ici, c'est une régression : chaque nouvel endpoint `{patient_id}...`
+    DOIT appeler `get_scoped_patient`, jamais `db.get(models.Patient, ...)`
+    nu."""
+    patient = db.get(models.Patient, patient_id)
+    if patient is None or patient.institution_id != current_user.institution_id:
+        raise HTTPException(status_code=404, detail="Patient introuvable.")
+    return patient
+
+
+def require_module(module: str):
+    """
+    Dépendance FastAPI pour restreindre un endpoint aux institutions dont la
+    licence active inclut `module` (voir licensing.py pour le catalogue de
+    plans/modules). Usage : `Depends(require_module("digital_twin"))`.
+
+    403 (pas 404) : contrairement à get_scoped_patient, il n'y a rien à
+    cacher ici — l'appelant sait déjà que l'endpoint existe, le message
+    explique pourquoi son institution n'y a pas accès, ce qui est le
+    comportement voulu pour un frein commercial (contrairement à une
+    frontière de confidentialité inter-tenant)."""
+    async def _check(user: models.User = Depends(get_current_user), db: Session = Depends(get_db)) -> models.User:
+        import licensing
+        lic = licensing.get_or_create_license(db, user.institution_id)
+        if not licensing.has_module(lic, module):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Module '{module}' non inclus dans le plan '{lic.plan}' de votre institution "
+                       f"(ou licence expirée/désactivée) — contactez un administrateur pour mettre à niveau.",
+            )
+        return user
+    return _check
 
 
 def require_role(*allowed_roles: str):

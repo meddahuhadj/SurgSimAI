@@ -27,6 +27,212 @@ class ErrorDetail(BaseModel):
     title: str = "Erreur"
 
 
+class ComplianceStatusResponse(BaseModel):
+    status: str
+    compliant: bool
+    details: Dict[str, Any]
+
+# ---------------------------------------------------------------------------
+# OR Command Center & Constraint Engine
+# ---------------------------------------------------------------------------
+
+class SurgicalProcedureBase(BaseModel):
+    name: str
+    specialty: str = "hbp"
+    estimated_duration_mins: int = 120
+    min_duration_mins: int = 60
+    max_duration_mins: int = 300
+    urgency_default: str = "elective"
+    complexity_level: str = "medium"
+    anesthesia_type: str = "general"
+    required_equipment: List[str] = Field(default_factory=list)
+    required_icu_bed: bool = False
+    required_icu_duration_hours: float = 0.0
+    required_surgeon_specialty: Optional[str] = None
+
+class SurgicalProcedureCreate(SurgicalProcedureBase):
+    pass
+
+class SurgicalProcedureResponse(SurgicalProcedureBase):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class StaffAvailabilityBase(BaseModel):
+    user_id: int
+    start_time: datetime
+    end_time: datetime
+    availability_type: str = "available" # available, shift, meeting, leave, on_call
+    notes: Optional[str] = None
+
+class StaffAvailabilityCreate(StaffAvailabilityBase):
+    pass
+
+class StaffAvailabilityResponse(StaffAvailabilityBase):
+    id: str
+    created_at: datetime
+    user_name: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OperatingRoomBase(BaseModel):
+    name: str
+    type: str = "general"
+    is_active: bool = True
+    capabilities: List[str] = []
+
+class OperatingRoomResponse(OperatingRoomBase):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OperatingScheduleBase(BaseModel):
+    operating_room_id: str
+    patient_id: str
+    plan_id: Optional[str] = None
+    procedure_id: Optional[str] = None
+    start_time: datetime
+    end_time: datetime
+    estimated_duration_mins: int
+    status: str = "draft" # draft, reviewed, confirmed, frozen, in_progress, completed, cancelled
+    primary_surgeon_id: Optional[int] = None
+    anesthesiologist_id: Optional[int] = None
+    nurse_id: Optional[int] = None
+    urgency_level: str = "elective"
+    actual_incision_time: Optional[datetime] = None
+    actual_end_time: Optional[datetime] = None
+    delay_mins: int = 0
+    icu_bed_reserved: bool = False
+    icu_reservation_start: Optional[datetime] = None
+    icu_reservation_end: Optional[datetime] = None
+    notes: Optional[str] = None
+
+class OperatingScheduleCreate(OperatingScheduleBase):
+    pass
+
+class OperatingScheduleUpdate(BaseModel):
+    operating_room_id: Optional[str] = None
+    procedure_id: Optional[str] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    estimated_duration_mins: Optional[int] = None
+    status: Optional[str] = None
+    primary_surgeon_id: Optional[int] = None
+    anesthesiologist_id: Optional[int] = None
+    nurse_id: Optional[int] = None
+    urgency_level: Optional[str] = None
+    actual_incision_time: Optional[datetime] = None
+    actual_end_time: Optional[datetime] = None
+    delay_mins: Optional[int] = None
+    icu_bed_reserved: Optional[bool] = None
+    icu_reservation_start: Optional[datetime] = None
+    icu_reservation_end: Optional[datetime] = None
+    notes: Optional[str] = None
+    audit_reason: Optional[str] = Field(None, description="Justification d'audit obligatoire si modification après freeze")
+
+class OperatingScheduleResponse(OperatingScheduleBase):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+    
+    room_name: Optional[str] = None
+    patient_name: Optional[str] = None
+    procedure_name: Optional[str] = None
+    primary_surgeon_name: Optional[str] = None
+    anesthesiologist_name: Optional[str] = None
+    readiness_status: Optional[str] = None # READY, READY_WITH_WARNINGS, BLOCKED
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class PreparationScoreResponse(BaseModel):
+    patient_id: str
+    score_pct: int
+    readiness_status: Literal["READY", "READY_WITH_WARNINGS", "BLOCKED"]
+    readiness_level: str # '🟢 Ready', '🟠 Ready with Warnings', '🔴 Blocked'
+    critical_blockers: List[str]
+    warnings: List[str]
+    completed_count: int
+    total_count: int
+    imagerie: Dict[str, bool]
+    chirurgie: Dict[str, bool]
+    anesthesie: Dict[str, bool]
+    biologie: Dict[str, bool]
+    bloc: Dict[str, bool]
+    materiel: Dict[str, bool]
+    reanimation: Dict[str, bool]
+
+class SlotValidationRequest(BaseModel):
+    schedule_id: Optional[str] = None
+    operating_room_id: str
+    patient_id: str
+    procedure_id: Optional[str] = None
+    start_time: datetime
+    end_time: datetime
+    primary_surgeon_id: Optional[int] = None
+    anesthesiologist_id: Optional[int] = None
+
+class SlotValidationResponse(BaseModel):
+    is_valid: bool
+    status: Literal["VALID", "WARNING", "BLOCKED"]
+    status_icon: str # 🟢, 🟠, 🔴
+    hard_blockers: List[str]
+    soft_warnings: List[str]
+    overtime_mins: int = 0
+
+class RealtimeDelayRequest(BaseModel):
+    actual_incision_time: Optional[datetime] = None
+    actual_end_time: Optional[datetime] = None
+    reason: Optional[str] = None
+
+class OptimizationRequest(BaseModel):
+    date_start: datetime
+    date_end: datetime
+
+class OptimizedSchedule(BaseModel):
+    schedule_id: str
+    original_room_id: str
+    new_room_id: str
+    original_start_time: datetime
+    new_start_time: datetime
+    original_end_time: datetime
+    new_end_time: datetime
+    reasoning: str
+
+class OptimizationOption(BaseModel):
+    option_id: str
+    title: str
+    summary: str
+    time_saved_mins: int
+    overtime_reduced_mins: int
+    changes: List[OptimizedSchedule]
+
+class OptimizationResponse(BaseModel):
+    reasoning_summary: str
+    options: List[OptimizationOption]
+    changes: List[OptimizedSchedule]
+    estimated_time_saved_mins: int
+
+class SimulationWhatIfRequest(BaseModel):
+    date: datetime
+    room_unavailable_id: Optional[str] = None
+    staff_absent_id: Optional[int] = None
+    emergency_procedure_added: Optional[Dict[str, Any]] = None
+
+class SimulationWhatIfResponse(BaseModel):
+    scenario_description: str
+    impacted_schedules_count: int
+    reallocated_schedules: List[OptimizedSchedule]
+    unfeasible_schedules: List[str]
+    original_utilization_pct: float
+    simulated_utilization_pct: float
+    recommendation: str
+
+
+
 class HealthResponse(BaseModel):
     status: str
     ai: bool
@@ -89,6 +295,10 @@ class UserRegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9._-]+$")
     password: str = Field(..., max_length=128)
     full_name: Optional[str] = Field(None, min_length=1, max_length=128)
+    # Rejoint une institution existante (ex. lien d'invitation d'un établissement
+    # déjà client) si fourni ; sinon une nouvelle institution personnelle est
+    # créée pour ce compte — voir tenancy.resolve_institution_id.
+    institution_id: Optional[str] = None
 
 
 class RegisterResponse(BaseModel):
@@ -122,6 +332,35 @@ class UserOut(BaseModel):
     totp_enabled: bool
     last_login_at: Optional[datetime] = None
     created_at: datetime
+
+
+class InstitutionLicenseOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    institution_id: str
+    institution_name: str
+    plan: str
+    plan_label: str
+    max_seats: int
+    seats_used: int
+    enabled_modules: List[str]
+    expires_at: Optional[datetime] = None
+    is_active: bool
+    is_valid: bool  # is_active ET non expirée — voir licensing.is_license_valid
+
+
+class InstitutionLicenseUpdate(BaseModel):
+    """Tous les champs optionnels : seuls ceux fournis sont modifiés. `plan`
+    seul ne réinitialise PAS enabled_modules/max_seats au catalogue — utiliser
+    `reset_to_plan_defaults=true` pour ça explicitement (évite qu'un simple
+    changement d'étiquette de plan écrase silencieusement des ajustements
+    ponctuels déjà en place, voir models.InstitutionLicense.enabled_modules)."""
+    plan: Optional[str] = None
+    max_seats: Optional[int] = Field(None, ge=1)
+    enabled_modules: Optional[List[str]] = None
+    expires_at: Optional[datetime] = None
+    is_active: Optional[bool] = None
+    reset_to_plan_defaults: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +418,13 @@ class SegmentCreate(BaseModel):
     label: str = Field(..., min_length=1, max_length=128)
     color_hex: str = Field(default="#ff0000", pattern=r"^#[0-9a-fA-F]{6}$")
     mesh_ref: Optional[str] = None
+    # Utilisé notamment pour marquer un segment comme référence experte d'un
+    # autre (ex. {"ground_truth_for_segment_id": "<id du segment prédit>"}),
+    # voir routers/compliance.py::get_clinical_evaluation_for_patient — permet
+    # une vraie évaluation Dice/HD95 quand une paire prédiction/vérité-terrain
+    # existe, sans migration de schéma (la colonne DB `metadata` existe déjà
+    # sur models.Segment, seulement absente de ce contrat API jusqu'ici).
+    metadata_json: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SegmentOut(SegmentCreate):
@@ -382,6 +628,14 @@ class TwinBiomechIn(BaseModel):
     validation_dataset_ref: Optional[str] = Field(None, max_length=2000)
 
 
+class ElastographyIngestIn(BaseModel):
+    tissue_type: str = Field("liver_parenchyma", description="Type de tissu (ex. 'liver_parenchyma', 'liver_tumor')")
+    mean_shear_stiffness_kpa: float = Field(..., gt=0.0, description="Rigidité moyenne mesurée en kPa (Shear Wave Elastography / MRE)")
+    frequency_hz: Optional[float] = Field(50.0, description="Fréquence d'excitation MRE en Hz")
+    elastography_type: str = Field("shear_wave_elastography", description="Technique : 'shear_wave_elastography', 'mre_50hz', 'transient_elastography'")
+    validation_dataset_ref: Optional[str] = Field(None, max_length=2000)
+
+
 class TwinBiomechOut(BaseModel):
     id: Optional[str] = None
     patient_id: str
@@ -462,6 +716,12 @@ class VolumetrieResponse(BaseModel):
     volume_resection_ml: float
     remnant_pct: float
     margin_cm: float
+    # Honnêteté sur l'origine de volume_resection_ml — voir routers/volumetrie.py :
+    # False quand un vrai segment type="resection" existe pour ce patient
+    # (volume mesuré, pas estimé), True quand c'est encore l'approximation
+    # heuristique de repli.
+    resection_volume_is_estimated: bool = True
+    resection_calculation_method: str = ""
     # HBP-specific
     tlv_ml: Optional[float] = None
     tv_ml: Optional[float] = None
@@ -530,3 +790,21 @@ class DicomSRExportResponse(BaseModel):
     StudyDate: str
     SurgicalPlan: Dict[str, Any]
     Observations: Optional[str]
+
+
+# ---------------------------------------------------------------------------
+# OR Duration Analytics
+# ---------------------------------------------------------------------------
+
+class ProcedureStatsItem(BaseModel):
+    procedure_id: str
+    procedure_name: str
+    sample_count: int
+    estimated_duration_mins: int
+    avg_actual_duration_mins: float
+    p50_duration_mins: float
+    p90_duration_mins: float
+    recommendation: str
+
+class ProcedureDurationStatsResponse(BaseModel):
+    stats: List[ProcedureStatsItem]

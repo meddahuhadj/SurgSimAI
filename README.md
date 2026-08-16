@@ -1,9 +1,25 @@
-# GeneralSurg Plan MIMO — enrichi
+# SurgSim Research 3D
 
-Plateforme chirurgicale modulaire multi-spécialités (HBP, Colorectal, Gastrique,
-Thyroïde, Thoracique, Cardiaque), portée au même niveau de complétude que
-`GeneralSurgPlan3D - 4` : moteur 3D data-driven, MPR volumétrique réel, IA
-connectée, analyse prédictive calculée, backend FastAPI générique.
+**Plateforme de simulation chirurgicale 3D, recherche reproductible et
+enseignement médical** — Voice-First, IA, Digital Twin, Scenario Graph,
+PACS/DICOM, FHIR/HL7.
+
+> ⚠️ **Positionnement** : cette instance opère en mode **Recherche /
+> Enseignement / Simulation**, pas en mode dispositif médical clinique. Les
+> fonctionnalités d'aide à la décision clinique en temps réel ne sont pas
+> activées — voir [`CLINICAL_ROADMAP.md`](CLINICAL_ROADMAP.md) et
+> [`REGULATORY_MDR_ISO14971.md`](REGULATORY_MDR_ISO14971.md) pour la
+> trajectoire vers un usage clinique réel, et
+> [`SURGSIM_RESEARCH_GUIDE.md`](SURGSIM_RESEARCH_GUIDE.md) pour le guide
+> Recherche & Académique. Les modules exploratoires (BCI, nanorobotique,
+> bio-impression, robotique...) vivent isolés sous `backend/exploratory/`,
+> hors périmètre du produit principal, désactivés par défaut
+> (`RESEARCH_MODE=false`).
+
+Techniquement, la plateforme couvre 6 spécialités chirurgicales (HBP,
+Colorectal, Gastrique, Thyroïde, Thoracique, Cardiaque) : moteur 3D
+data-driven, MPR volumétrique réel, segmentation IA réelle (TotalSegmentator),
+solveur biomécanique XPBD, IA connectée, backend FastAPI multi-tenant.
 
 ## Contenu
 

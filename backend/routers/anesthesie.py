@@ -19,7 +19,7 @@ from clinical_scores import (
     news2_escalation, sepsis_organ_dysfunction,
 )
 from db import get_db
-from deps import get_current_user, write_audit
+from deps import get_current_user, get_scoped_patient, write_audit
 from schemas import (
     PreanesthesiaAssessmentIn, PreanesthesiaAssessmentOut,
     IcuFollowUpIn, IcuFollowUpOut,
@@ -47,8 +47,7 @@ def _assessment_out(rec: models.PreanesthesiaAssessment) -> PreanesthesiaAssessm
 @router.get("/patients/{patient_id}/preanesthesie", response_model=PreanesthesiaAssessmentOut)
 async def get_preanesthesie(patient_id: str,
                              current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not db.get(models.Patient, patient_id):
-        raise HTTPException(404, "Patient introuvable.")
+    get_scoped_patient(patient_id, current, db)
     rec = db.query(models.PreanesthesiaAssessment).filter(
         models.PreanesthesiaAssessment.patient_id == patient_id
     ).first()
@@ -60,8 +59,7 @@ async def get_preanesthesie(patient_id: str,
 @router.put("/patients/{patient_id}/preanesthesie", response_model=PreanesthesiaAssessmentOut)
 async def upsert_preanesthesie(patient_id: str, body: PreanesthesiaAssessmentIn, request: Request,
                                 current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not db.get(models.Patient, patient_id):
-        raise HTTPException(404, "Patient introuvable.")
+    get_scoped_patient(patient_id, current, db)
 
     rec = db.query(models.PreanesthesiaAssessment).filter(
         models.PreanesthesiaAssessment.patient_id == patient_id
@@ -116,8 +114,7 @@ def _followup_out(rec: models.IcuFollowUp) -> IcuFollowUpOut:
 @router.get("/patients/{patient_id}/icu-followups", response_model=List[IcuFollowUpOut])
 async def list_icu_followups(patient_id: str,
                               current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not db.get(models.Patient, patient_id):
-        raise HTTPException(404, "Patient introuvable.")
+    get_scoped_patient(patient_id, current, db)
     recs = db.query(models.IcuFollowUp).filter(
         models.IcuFollowUp.patient_id == patient_id
     ).order_by(models.IcuFollowUp.recorded_at.desc()).all()
@@ -127,8 +124,7 @@ async def list_icu_followups(patient_id: str,
 @router.post("/patients/{patient_id}/icu-followups", response_model=IcuFollowUpOut, status_code=201)
 async def create_icu_followup(patient_id: str, body: IcuFollowUpIn, request: Request,
                                current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not db.get(models.Patient, patient_id):
-        raise HTTPException(404, "Patient introuvable.")
+    get_scoped_patient(patient_id, current, db)
 
     data = body.model_dump(exclude_unset=True)
     plan_id = data.pop("plan_id", None)

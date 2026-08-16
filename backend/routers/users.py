@@ -18,6 +18,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+import licensing
 import models
 import security as sec
 from db import get_db
@@ -33,11 +34,23 @@ async def create_user(payload: UserCreateRequest, request: Request,
                        db: Session = Depends(get_db)):
     if db.query(models.User).filter(models.User.username == payload.username).first():
         raise HTTPException(400, "Nom d'utilisateur déjà utilisé.")
+    # Un admin qui crée un compte onboarde quelqu'un dans SA PROPRE institution
+    # par défaut (cas normal : un admin d'établissement invite un collègue) —
+    # jamais une nouvelle institution personnelle isolée, sinon l'admin et
+    # l'utilisateur qu'il vient de créer ne verraient jamais les mêmes patients.
+    lic = licensing.get_or_create_license(db, current.institution_id)
+    if not licensing.has_seats_available(db, current.institution_id, lic):
+        raise HTTPException(
+            402,
+            f"Quota de sièges atteint ({lic.max_seats}, plan '{lic.plan}') pour cette institution — "
+            "mettez à niveau la licence avant de créer un nouveau compte."
+        )
     user = models.User(
         username=payload.username,
         full_name=payload.full_name or payload.username,
         role=payload.role,
         hashed_password=sec.hash_password(payload.password),
+        institution_id=current.institution_id,
     )
     db.add(user)
     db.commit()

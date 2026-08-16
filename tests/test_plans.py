@@ -22,9 +22,12 @@ def _unique(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:10]}"
 
 
-def _register_and_login(client, *, username=None, password: str = "TestPass123"):
+def _register_and_login(client, *, username=None, password: str = "TestPass123", institution_id=None):
     username = username or _unique("user")
-    r = client.post("/auth/register", json={"username": username, "password": password, "full_name": "Test Surgeon"})
+    payload = {"username": username, "password": password, "full_name": "Test Surgeon"}
+    if institution_id:
+        payload["institution_id"] = institution_id
+    r = client.post("/auth/register", json=payload)
     assert r.status_code == 200, r.text
     r = client.post("/auth/token", data={"username": username, "password": password})
     assert r.status_code == 200, r.text
@@ -149,8 +152,25 @@ def test_update_draft_by_author(client):
 
 
 def test_update_draft_by_non_author_forbidden(client):
-    _, h1 = _register_and_login(client, username=_unique("author"))
-    _, h2 = _register_and_login(client, username=_unique("other"))
+    import models
+    from db import get_db
+
+    import licensing
+
+    author_username, h1 = _register_and_login(client, username=_unique("author"))
+    db_session = next(get_db())
+    author = db_session.query(models.User).filter(models.User.username == author_username).first()
+    # L'institution personnelle de l'auteur naît en plan 'trial' (1 siège,
+    # voir tenancy.py) — la relever est nécessaire avant qu'un second
+    # utilisateur puisse la rejoindre (voir backend/licensing.py).
+    lic = licensing.get_or_create_license(db_session, author.institution_id)
+    lic.max_seats = 2
+    db_session.commit()
+    # "other" doit être dans la MÊME institution que l'auteur pour isoler ce
+    # test sur la règle testée (auteur uniquement) — sinon get_scoped_patient
+    # renverrait 404 (tenants différents) avant même d'atteindre la
+    # vérification d'auteur, ce qui ne serait pas ce que ce test vérifie.
+    _, h2 = _register_and_login(client, username=_unique("other"), institution_id=author.institution_id)
     patient_id = _create_patient(client, h1)
     plan = _make_plan(client, h1, patient_id)
 
@@ -233,3 +253,17 @@ def test_plan_workflow_writes_audit_trail(client):
     actions = [entry["action"] for entry in audit.json()]
     assert any("Création plan chirurgical" in a for a in actions)
     assert any("Validation plan chirurgical" in a for a in actions)
+
+
+def test_export_plan_fhir(client):
+    _, headers = _register_and_login(client)
+    patient_id = _create_patient(client, headers)
+    plan = _make_plan(client, headers, patient_id)
+
+    res = client.get(f"/patients/{patient_id}/plans/{plan['id']}/export/fhir", headers=headers)
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["resourceType"] == "Bundle"
+    assert len(data["entry"]) == 2
+    assert data["entry"][0]["resource"]["resourceType"] == "CarePlan"
+    assert data["entry"][1]["resource"]["resourceType"] == "Procedure"

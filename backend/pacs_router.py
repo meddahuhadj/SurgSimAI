@@ -38,7 +38,7 @@ import pacs_dimse
 import mllp_client
 import pydicom
 from db import get_db
-from deps import get_current_user, write_audit as _audit
+from deps import get_current_user, get_scoped_patient, write_audit as _audit
 
 router = APIRouter(tags=["pacs-fhir-hl7"])
 
@@ -55,11 +55,8 @@ DICOM_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 # éviter tout import circulaire"), désormais inutile.
 
 
-def _get_patient_or_404(db: Session, patient_id: str) -> models.Patient:
-    p = db.get(models.Patient, patient_id)
-    if not p:
-        raise HTTPException(404, "Patient introuvable.")
-    return p
+def _get_patient_or_404(db: Session, patient_id: str, current: models.User) -> models.Patient:
+    return get_scoped_patient(patient_id, current, db)
 
 
 def _save_datasets_to_disk(local_series_id: str, datasets: list) -> Path:
@@ -178,7 +175,7 @@ async def pacs_import_series(body: PacsImportBody, request: Request,
     """WADO-RS : rapatrie une série complète depuis le PACS distant et l'enregistre
     comme DicomSeries locale (même table que l'import manuel de fichiers .dcm),
     afin qu'elle soit ensuite utilisable par les modules MPR/segmentation existants."""
-    _get_patient_or_404(db, body.patient_id)
+    _get_patient_or_404(db, body.patient_id, current)
     cfg = _pacs_config(body.qido_url, body.wado_url)
     try:
         datasets = await pacs_client.retrieve_series(cfg, body.study_uid, body.series_uid)
@@ -217,7 +214,7 @@ async def pacs_import_series(body: PacsImportBody, request: Request,
 @router.get("/fhir/Patient/{patient_id}")
 async def fhir_patient(patient_id: str, request: Request,
                         current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    p = _get_patient_or_404(db, patient_id)
+    p = _get_patient_or_404(db, patient_id, current)
     _audit(db, request, "Export FHIR Patient", "fhir", current, patient_id=patient_id)
     return interop.fhir_patient(p)
 
@@ -225,7 +222,7 @@ async def fhir_patient(patient_id: str, request: Request,
 @router.get("/fhir/ImagingStudy/{patient_id}")
 async def fhir_imaging_study(patient_id: str, request: Request,
                               current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    p = _get_patient_or_404(db, patient_id)
+    p = _get_patient_or_404(db, patient_id, current)
     series = db.query(models.DicomSeries).filter(models.DicomSeries.patient_id == patient_id).all()
     _audit(db, request, "Export FHIR ImagingStudy", "fhir", current, patient_id=patient_id)
     return interop.fhir_imaging_study(p, series)
@@ -234,7 +231,7 @@ async def fhir_imaging_study(patient_id: str, request: Request,
 @router.get("/fhir/DiagnosticReport/{patient_id}")
 async def fhir_diagnostic_report(patient_id: str, request: Request,
                                   current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    p = _get_patient_or_404(db, patient_id)
+    p = _get_patient_or_404(db, patient_id, current)
     segments = db.query(models.Segment).filter(models.Segment.patient_id == patient_id).all()
     last_vol = (db.query(models.VolumetrieResult)
                 .filter(models.VolumetrieResult.patient_id == patient_id)
@@ -253,7 +250,7 @@ async def fhir_diagnostic_report(patient_id: str, request: Request,
 @router.get("/hl7/oru/{patient_id}", response_class=PlainTextResponse)
 async def hl7_oru(patient_id: str, request: Request,
                    current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    p = _get_patient_or_404(db, patient_id)
+    p = _get_patient_or_404(db, patient_id, current)
     segments = db.query(models.Segment).filter(models.Segment.patient_id == patient_id).all()
     last_vol = (db.query(models.VolumetrieResult)
                 .filter(models.VolumetrieResult.patient_id == patient_id)
@@ -271,7 +268,7 @@ async def hl7_oru(patient_id: str, request: Request,
 async def hl7_adt(patient_id: str, request: Request,
                    current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """ADT^A08 — synchronisation des données démographiques du patient vers le DPI/HIS."""
-    p = _get_patient_or_404(db, patient_id)
+    p = _get_patient_or_404(db, patient_id, current)
     message = interop.hl7_adt_a08(p)
     _audit(db, request, "Export HL7 v2 ADT^A08", "hl7", current, patient_id=patient_id, niveau="ok")
     return PlainTextResponse(content=message, media_type="application/hl7-v2")
@@ -281,7 +278,7 @@ async def hl7_adt(patient_id: str, request: Request,
 async def hl7_orm(patient_id: str, request: Request, procedure: str = "Intervention chirurgicale",
                    current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """ORM^O01 — demande d'intervention transmise au RIS/HIS de programmation opératoire."""
-    p = _get_patient_or_404(db, patient_id)
+    p = _get_patient_or_404(db, patient_id, current)
     message = interop.hl7_orm_o01(p, procedure)
     _audit(db, request, "Export HL7 v2 ORM^O01", "hl7", current, patient_id=patient_id, niveau="ok",
            metadata={"procedure": procedure})
@@ -324,7 +321,7 @@ async def _send_hl7_or_502(request: Request, db: Session, current: models.User, 
 @router.post("/hl7/adt/{patient_id}/send")
 async def hl7_adt_send(patient_id: str, request: Request, body: MllpSendBody,
                         current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    p = _get_patient_or_404(db, patient_id)
+    p = _get_patient_or_404(db, patient_id, current)
     message = interop.hl7_adt_a08(p)
     cfg = _mllp_config(body.host, body.port)
     return await _send_hl7_or_502(request, db, current, patient_id, "ADT^A08", message, cfg)
@@ -334,7 +331,7 @@ async def hl7_adt_send(patient_id: str, request: Request, body: MllpSendBody,
 async def hl7_orm_send(patient_id: str, request: Request, body: MllpSendBody,
                         procedure: str = "Intervention chirurgicale",
                         current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    p = _get_patient_or_404(db, patient_id)
+    p = _get_patient_or_404(db, patient_id, current)
     message = interop.hl7_orm_o01(p, procedure)
     cfg = _mllp_config(body.host, body.port)
     return await _send_hl7_or_502(request, db, current, patient_id, "ORM^O01", message, cfg)
@@ -343,7 +340,7 @@ async def hl7_orm_send(patient_id: str, request: Request, body: MllpSendBody,
 @router.post("/hl7/oru/{patient_id}/send")
 async def hl7_oru_send(patient_id: str, request: Request, body: MllpSendBody,
                         current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    p = _get_patient_or_404(db, patient_id)
+    p = _get_patient_or_404(db, patient_id, current)
     segments = db.query(models.Segment).filter(models.Segment.patient_id == patient_id).all()
     last_vol = (db.query(models.VolumetrieResult)
                 .filter(models.VolumetrieResult.patient_id == patient_id)
@@ -429,7 +426,7 @@ async def dimse_import_series(body: DimseImportBody, request: Request,
     """C-GET : rapatrie une série depuis un PACS DIMSE classique (une seule
     association, pas de Storage SCP permanent nécessaire côté serveur — voir
     la docstring de pacs_dimse.get_series)."""
-    _get_patient_or_404(db, body.patient_id)
+    _get_patient_or_404(db, body.patient_id, current)
     cfg = _dimse_config(body.host, body.port, body.called_ae, body.calling_ae)
     try:
         datasets = await resilience.call_with_resilience(

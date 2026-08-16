@@ -24,14 +24,22 @@ jobs:
         run: |
           pip install -r backend/requirements.txt -r backend/requirements-dev.txt
 
-      - name: Lancer la suite de tests
+      - name: Vérification de la qualité de code (Ruff Linter)
+        run: |
+          pip install ruff
+          ruff check backend/ tests/
+
+      - name: Lancer la suite de tests Cliniques Certifiés (RESEARCH_MODE=false)
         env:
-          # Garde-fous avant mise en production (voir backend/.env.example) :
-          # inoffensifs ici car chaque run part d'une base SQLite temporaire
-          # jetée à la fin du job, jamais une vraie base de production.
           APP_ENV: development
           SEED_DEMO_USERS: "true"
           JWT_SECRET: ci-test-secret-not-for-production-use
           RESEARCH_MODE: "false"
         run: |
-          python -m pytest tests/ -v
+          # pyproject.toml déclare testpaths = ["tests", "backend/tests"] — jusqu'ici
+          # seul `tests/` tournait réellement en CI, laissant `backend/tests/` (119 tests
+          # réels : clinical_scores, phi_filter, registration ICP/FFD, twin_solver,
+          # mesh_distance...) totalement invisible d'un run CI, alors qu'ils passaient
+          # déjà localement. Les deux dossiers tournent maintenant, alignés sur ce que
+          # pyproject.toml déclarait déjà.
+          python -m pytest tests/ backend/tests/ -v

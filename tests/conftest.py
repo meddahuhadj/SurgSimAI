@@ -49,7 +49,10 @@ def client():
     fichier temporaire ci-dessus — jamais contre backend/generalsurg.db.
     """
     from fastapi.testclient import TestClient
-    from backend.main import app
+    try:
+        from main import app
+    except ImportError:
+        from backend.main import app
 
     with TestClient(app) as c:
         yield c
@@ -59,7 +62,10 @@ def client():
     # unlink() échoue avec PermissionError (fichier utilisé par le process).
     import db as dbmod
     dbmod.engine.dispose()
-    _TEST_DB_PATH.unlink(missing_ok=True)
+    try:
+        _TEST_DB_PATH.unlink(missing_ok=True)
+    except PermissionError:
+        pass
 
 
 @pytest.fixture(autouse=True)

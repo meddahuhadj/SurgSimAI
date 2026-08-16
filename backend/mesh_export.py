@@ -23,6 +23,30 @@ from typing import Optional
 import numpy as np
 
 
+def resolve_mesh_path(mesh_ref: str | None) -> Path | None:
+    """Résout un `Segment.mesh_ref` (voir models.py) en chemin de fichier .glb
+    réel sur disque. Accepte un chemin absolu déjà valide, ou un chemin
+    relatif au dossier de stockage des maillages
+    (`segmentation_service.MESH_STORAGE`, celui où `mask_to_glb` écrit ses
+    sorties). Retourne None si `mesh_ref` est vide OU si le fichier n'existe
+    pas — jamais une exception ici : c'est à l'appelant (voir
+    routers/volumetrie.py, routers/compliance.py) de décider comment réagir à
+    un maillage manquant, typiquement une erreur 422 honnête plutôt qu'une
+    valeur de repli inventée.
+
+    Vit ici (pas dans un router) parce que plusieurs routers en ont besoin —
+    la résolution d'un maillage réel est une préoccupation de ce module, pas
+    d'un endpoint en particulier."""
+    if not mesh_ref:
+        return None
+    p = Path(mesh_ref)
+    if p.is_file():
+        return p
+    from segmentation_service import MESH_STORAGE
+    candidate = MESH_STORAGE / mesh_ref
+    return candidate if candidate.is_file() else None
+
+
 def mask_to_mesh(mask: np.ndarray, spacing: tuple[float, float, float] = (1.0, 1.0, 1.0),
                   level: float = 0.5, step_size: int = 1):
     """
@@ -196,15 +220,92 @@ def surface_to_surface_min_distance(mesh_a, mesh_b, max_points_per_side: int = 8
     _, dist_b_to_a, _ = trimesh.proximity.ProximityQuery(mesh_a).on_surface(pts_b)
 
     d_ab, d_ba = float(dist_a_to_b.min()), float(dist_b_to_a.min())
+    # HD95 : 95e percentile des distances point-échantillonné → surface-exacte,
+    # dans LES DEUX sens confondus (même convention que compute_hausdorff_distance_95
+    # de clinical_validation_benchmarks.py, réutilisée ici sur les distances déjà
+    # calculées ci-dessus plutôt que de refaire une matrice de distances O(n×m)
+    # sur ces nuages potentiellement volumineux — voir sa docstring pour le risque
+    # mémoire d'une matrice dense sur des points de surface réels, non un souci
+    # sur le petit nombre d'amers d'un usage TRE classique).
+    hd95_mm = float(np.percentile(np.concatenate([dist_a_to_b, dist_b_to_a]), 95))
     return {
         "min_distance_mm": min(d_ab, d_ba),
         "direction_a_to_b_mm": d_ab,
         "direction_b_to_a_mm": d_ba,
+        "hd95_mm": hd95_mm,
         "n_points_a": int(len(pts_a)),
         "n_points_b": int(len(pts_b)),
         "method": "surface sampling (vertices + sample_surface, plafonné) "
                   "+ trimesh.proximity.ProximityQuery.on_surface, bidirectionnel",
     }
+
+
+def mesh_pair_dice(mesh_a, mesh_b, pitch_mm: float = 2.0) -> dict:
+    """Coefficient de Dice RÉEL (chevauchement volumique) entre deux maillages
+    triangulés, par voxélisation sur une grille COMMUNE (pas les grilles
+    indépendantes que produirait `mesh.voxelized()` sur chaque mesh séparément
+    — elles n'auraient ni la même origine ni la même forme, rendant une
+    intersection directe des matrices booléennes incorrecte).
+
+    Méthode : voxélise chaque mesh à `pitch_mm` (remplissage intérieur via
+    `trimesh.voxel.VoxelGrid.fill()`), convertit les centres de voxels remplis
+    en indices entiers relatifs à une origine commune (le coin min-min-min de
+    l'union des deux bounding boxes), puis calcule le Dice par intersection
+    d'ensembles d'indices — équivalent à une intersection de grilles alignées,
+    sans avoir à allouer un tableau 3D dense pouvant être très creux.
+
+    Limites honnêtes : c'est une approximation géométrique au pas `pitch_mm`
+    (pas un Dice voxel-à-voxel dans l'espace natif d'acquisition DICOM/NIfTI),
+    et `fill()` de trimesh suppose un maillage suffisamment étanche
+    (`watertight`) pour bien définir un intérieur — un maillage ouvert produira
+    un remplissage incorrect. Retourne 1.0 si les deux ensembles de voxels sont
+    vides (convention cohérente avec `compute_dice_coefficient`)."""
+    import trimesh
+
+    def _voxel_index_set(mesh, origin: np.ndarray) -> set:
+        filled = mesh.voxelized(pitch=pitch_mm).fill()
+        if len(filled.points) == 0:
+            return set()
+        idx = np.round((filled.points - origin) / pitch_mm).astype(np.int64)
+        return set(map(tuple, idx))
+
+    if len(mesh_a.faces) == 0 or len(mesh_b.faces) == 0:
+        raise ValueError("Un des deux maillages est vide (0 triangle) : Dice indéfini.")
+
+    combined_min = np.minimum(mesh_a.bounds[0], mesh_b.bounds[0])
+    set_a = _voxel_index_set(mesh_a, combined_min)
+    set_b = _voxel_index_set(mesh_b, combined_min)
+
+    n_a, n_b = len(set_a), len(set_b)
+    if n_a == 0 and n_b == 0:
+        return {"dice": 1.0, "n_voxels_a": 0, "n_voxels_b": 0, "pitch_mm": pitch_mm}
+
+    intersection = len(set_a & set_b)
+    dice = 2.0 * intersection / (n_a + n_b) if (n_a + n_b) > 0 else 1.0
+    return {"dice": dice, "n_voxels_a": n_a, "n_voxels_b": n_b,
+            "n_voxels_intersection": intersection, "pitch_mm": pitch_mm}
+
+
+def dice_and_hd95_from_glb(path_a: Path, path_b: Path, pitch_mm: float = 2.0,
+                            max_points_per_side: int = 8000) -> dict:
+    """Charge deux .glb et calcule leur Dice volumique réel (`mesh_pair_dice`)
+    et leur HD95 réelle (`surface_to_surface_min_distance`) en un seul appel —
+    c'est ce que `routers/compliance.py::get_clinical_evaluation_for_patient`
+    utilise pour évaluer une paire (segmentation prédite, référence experte)
+    au lieu de valeurs fabriquées. Lève `FileNotFoundError` si un chemin est
+    absent."""
+    import trimesh
+
+    for p in (path_a, path_b):
+        if not Path(p).is_file():
+            raise FileNotFoundError(f"Fichier maillage introuvable : {p}")
+
+    mesh_a = trimesh.load(str(path_a), force="mesh")
+    mesh_b = trimesh.load(str(path_b), force="mesh")
+
+    dice_result = mesh_pair_dice(mesh_a, mesh_b, pitch_mm=pitch_mm)
+    distance_result = surface_to_surface_min_distance(mesh_a, mesh_b, max_points_per_side=max_points_per_side)
+    return {**dice_result, **distance_result}
 
 
 def mesh_distance_from_glb(path_a: Path, path_b: Path, max_points_per_side: int = 8000) -> dict:

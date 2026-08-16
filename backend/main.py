@@ -44,16 +44,21 @@ from fastapi import Depends
 from sqlalchemy.exc import OperationalError, DBAPIError
 
 from db import get_db, init_db, DATABASE_URL
+import licensing
 import models
 import security as sec
+import tenancy
 import resilience
 from deps import get_current_user, require_role, write_audit, oauth2_scheme  # noqa: F401 (re-exportés)
+from routers import synthetic_generator
 from specialties import SPECIALTY_LABELS
 from ai_config import GEMINI_KEY, GROQ_KEY
 from logging_config import setup_logging, correlation_id_var, generate_correlation_id
 
 import routers.auth as auth_router
 import routers.users as users_router
+import routers.institution as institution_router
+import routers.ops as ops_router
 import routers.patients as patients_router
 import routers.dicom as dicom_router
 import routers.volumetrie as volumetrie_router
@@ -63,6 +68,8 @@ import routers.anesthesie as anesthesie_router
 import routers.twin as twin_router
 import routers.plans as plans_router
 import routers.pkpd_anesthesia as pkpd_anesthesia_router
+import routers.or_planning as or_planning_router
+import routers.compliance as compliance_router
 from schemas import DicomSRExportRequest, DicomSRExportResponse
 import schemas
 
@@ -169,11 +176,14 @@ async def lifespan(app: FastAPI):
                 logger.error("BOOTSTRAP_ADMIN_PASSWORD trop court (min 8 caractères) — "
                              "administrateur de bootstrap NON créé.")
             else:
+                inst_id = tenancy.resolve_institution_id(
+                    db, personal_institution_name=f"{BOOTSTRAP_ADMIN_FULL_NAME or BOOTSTRAP_ADMIN_USERNAME} (Personal)")
                 db.add(models.User(
                     username=BOOTSTRAP_ADMIN_USERNAME,
                     full_name=BOOTSTRAP_ADMIN_FULL_NAME or BOOTSTRAP_ADMIN_USERNAME,
                     role="admin",
                     hashed_password=sec.hash_password(BOOTSTRAP_ADMIN_PASSWORD),
+                    institution_id=inst_id,
                 ))
                 db.commit()
                 table_empty = False
@@ -183,15 +193,56 @@ async def lifespan(app: FastAPI):
             # dr.hadj est seedé en rôle "admin" (uniquement pour que /audit, réservé aux
             # rôles admin/dpo depuis le durcissement RBAC, reste testable en dev) — à
             # remplacer par une vraie attribution de rôles avant toute mise en production.
+            # Une seule institution partagée pour les deux comptes de démo (collègues
+            # du même établissement fictif) — sinon dr.hadj et dr.benali ne verraient
+            # jamais les mêmes patients, ce qui casserait la démo à vue.
+            demo_inst_id = tenancy.resolve_institution_id(db, personal_institution_name="Clinique de Démonstration")
+            # resolve_institution_id() a déjà attribué un plan 'trial' (1
+            # siège, module 'core' seul) à cette institution flambant neuve —
+            # insuffisant pour 2 comptes de démo et pour montrer les modules
+            # premium (digital_twin, etc.) lors d'une démo. get_or_create_license
+            # ne fait rien si une licence existe déjà (cas normal ici), donc on
+            # réécrit ses champs explicitement plutôt que de compter sur `plan=`.
+            demo_lic = licensing.get_or_create_license(db, demo_inst_id)
+            demo_defaults = licensing.default_license_kwargs("enterprise")
+            demo_lic.plan = demo_defaults["plan"]
+            demo_lic.max_seats = demo_defaults["max_seats"]
+            demo_lic.enabled_modules = demo_defaults["enabled_modules"]
             for username, full_name, role in [("dr.hadj", "Dr. Hadj", "admin"), ("dr.benali", "Dr. Benali", "surgeon")]:
                 db.add(models.User(
                     username=username, full_name=full_name, role=role,
                     hashed_password=sec.hash_password("changeme"),
+                    institution_id=demo_inst_id,
                 ))
             db.commit()
             table_empty = False
             logger.info("Utilisateurs de démonstration créés (dr.hadj / dr.benali, mdp: changeme). "
                         "À supprimer avant toute mise en production.")
+
+        # Provisionnement des salles, procédures et lits USI de démonstration
+        if not db.query(models.OperatingRoom).first():
+            r1 = models.OperatingRoom(id="bloc-1", name="Salle 1 (Polyvalente)", type="general", capabilities=["coelio", "hbp"])
+            r2 = models.OperatingRoom(id="bloc-2", name="Salle 2 (HBP / Digestif)", type="hbp", capabilities=["coelio_avancee", "hbp", "cell_saver"])
+            r3 = models.OperatingRoom(id="bloc-3", name="Salle 3 (Urgences)", type="urgence", capabilities=["urgence", "coelio"])
+            db.add_all([r1, r2, r3])
+            db.commit()
+            logger.info("Salles d'opération de démonstration créées (Salle 1, Salle 2, Salle 3).")
+
+        if not db.query(models.SurgicalProcedure).first():
+            p1 = models.SurgicalProcedure(id="proc-hep", name="Hépatectomie droite", specialty="hbp", estimated_duration_mins=210, required_equipment=["coelioscope", "energie_avancee"], required_icu_bed=True, required_icu_duration_hours=24.0)
+            p2 = models.SurgicalProcedure(id="proc-col", name="Colectomie gauche", specialty="hbp", estimated_duration_mins=150, required_equipment=["coelioscope"], required_icu_bed=False)
+            p3 = models.SurgicalProcedure(id="proc-chole", name="Cholécystectomie laparoscopic", specialty="digestif", estimated_duration_mins=90, required_equipment=["coelioscope"], required_icu_bed=False)
+            db.add_all([p1, p2, p3])
+            db.commit()
+            logger.info("Procédures opératoires métier de démonstration créées.")
+
+        if not db.query(models.BedAvailability).first():
+            b1 = models.BedAvailability(id="bed-usi-1", bed_identifier="Lit USI 01", department="USI", is_occupied=False)
+            b2 = models.BedAvailability(id="bed-usi-2", bed_identifier="Lit USI 02", department="USI", is_occupied=False)
+            b3 = models.BedAvailability(id="bed-rea-1", bed_identifier="Lit Réa 01", department="Réanimation", is_occupied=False)
+            db.add_all([b1, b2, b3])
+            db.commit()
+            logger.info("Lits USI/Réanimation de démonstration créés.")
 
         if table_empty and APP_ENV == "production":
             # Ni bootstrap-admin ni seed démo (le garde-fou ci-dessus interdit
@@ -217,7 +268,23 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="GeneralSurg Plan MIMO — Backend", version="2.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="SurgSim Research 3D — API",
+    version="2.5.0",
+    lifespan=lifespan,
+    description=(
+        "Backend de **SurgSim Research 3D** : plateforme de simulation chirurgicale 3D, "
+        "recherche reproductible et enseignement médical (Voice-First, IA, Digital Twin, "
+        "Scenario Graph, PACS/DICOM, FHIR/HL7).\n\n"
+        "⚠️ **Positionnement** : cette instance opère en mode Recherche/Enseignement/Simulation. "
+        "Les fonctionnalités d'aide à la décision clinique en temps réel ne sont pas activées "
+        "(voir `CLINICAL_ROADMAP.md` et `REGULATORY_MDR_ISO14971.md`) — non certifiée dispositif "
+        "médical MDR/FDA (voir `/compliance/mdr-fda-status`). Les modules exploratoires "
+        "(BCI, nanorobotique, bio-impression...) vivent sous `backend/exploratory/`, hors "
+        "périmètre du produit principal, et ne sont exposés que si `RESEARCH_MODE=true`."
+    ),
+)
+app.include_router(synthetic_generator.router)
 
 # ---------------------------------------------------------------------------
 # Middleware correlation ID — chaque requête reçoit un ID unique tracable
@@ -318,16 +385,25 @@ API_V1 = "/api/v1"
 # Version v1 (nouvelle)
 app.include_router(auth_router.router, prefix=API_V1)
 app.include_router(users_router.router, prefix=API_V1)
+app.include_router(institution_router.router, prefix=API_V1)
+app.include_router(ops_router.router, prefix=API_V1)
 app.include_router(patients_router.router, prefix=API_V1)
 app.include_router(dicom_router.router, prefix=API_V1)
 app.include_router(volumetrie_router.router, prefix=API_V1)
 app.include_router(chat_router.router, prefix=API_V1)
 app.include_router(audit_router.router, prefix=API_V1)
 app.include_router(plans_router.router, prefix=API_V1)
+app.include_router(or_planning_router.router, prefix=API_V1)
+app.include_router(compliance_router.router, prefix=API_V1)
 
 # Compatibilité ascendante (anciens chemins, sans prefix)
 app.include_router(auth_router.router)
 app.include_router(users_router.router)
+import routers.compliance as compliance_router
+import routers.commercial_suite as commercial_suite_router
+
+app.include_router(institution_router.router)
+app.include_router(ops_router.router)
 app.include_router(patients_router.router)
 app.include_router(dicom_router.router)
 app.include_router(volumetrie_router.router)
@@ -337,6 +413,9 @@ app.include_router(anesthesie_router.router)
 app.include_router(twin_router.router)
 app.include_router(plans_router.router)
 app.include_router(pkpd_anesthesia_router.router)
+app.include_router(or_planning_router.router)
+app.include_router(compliance_router.router)
+app.include_router(commercial_suite_router.router)
 
 # routers/dicom.py charge segmentation_service.py (pipeline réel TotalSegmentator)
 # dans son propre try/except et expose REAL_SEGMENTATION_AVAILABLE : app.mount()
@@ -387,6 +466,12 @@ for _mod_name, _router_attr in _real_services:
 # ou R&D encadrée). Voir aussi le Mode Recherche du frontend (bouton 🔬),
 # qui doit rester cohérent avec ce flag côté serveur.
 #
+# Isolés dans le package backend/exploratory/ (et non plus des fichiers .py au
+# même niveau que les routers cliniques réels) pour qu'un futur dossier
+# réglementaire MDR/IEC 62304 (voir REGULATORY_MDR_ISO14971.md) puisse exclure
+# ce package entier du périmètre à auditer d'un coup d'œil — voir
+# backend/exploratory/__init__.py pour le détail de ce choix.
+#
 # monai_pipeline_v2 est inclus ici (et non dans _real_services) car audité et
 # confirmé n'appeler ni torch ni monai : il retourne des volumes hépatiques et
 # segments de Couinaud FIXES et IDENTIQUES pour tout patient (aucun calcul
@@ -422,7 +507,9 @@ if RESEARCH_MODE:
                    "NON VALIDÉS CLINIQUEMENT. Ne jamais activer ce flag en production.")
     for _mod_name in _exploratory_services:
         try:
-            _mod = __import__(_mod_name)
+            # fromlist non vide -> __import__ renvoie le sous-module lui-même
+            # (backend.exploratory.<nom>), pas le paquet backend.exploratory.
+            _mod = __import__(f"exploratory.{_mod_name}", fromlist=["router"])
             app.include_router(_mod.router)
         except Exception as e:  # noqa: BLE001
             logger.warning("Service exploratoire %s non chargé: %s", _mod_name, e)

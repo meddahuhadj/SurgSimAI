@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 import models
 from db import get_db
-from deps import get_current_user, write_audit
+from deps import get_current_user, get_scoped_patient, write_audit
 from schemas import (
     PatientCreate, PatientOut, PatientUpdate,
     SegmentCreate, SegmentOut,
@@ -38,7 +38,9 @@ def _patient_out(p: models.Patient) -> PatientOut:
 @router.get("/patients", response_model=List[PatientOut])
 async def list_patients(specialty: Optional[Specialty] = None,
                          current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    q = db.query(models.Patient)
+    # Borné à l'institution de l'appelant — voir deps.get_scoped_patient pour
+    # la même règle appliquée aux endpoints à patient unique.
+    q = db.query(models.Patient).filter(models.Patient.institution_id == current.institution_id)
     if specialty:
         q = q.filter(models.Patient.specialty == specialty)
     return [_patient_out(p) for p in q.all()]
@@ -47,9 +49,7 @@ async def list_patients(specialty: Optional[Specialty] = None,
 @router.get("/patients/{patient_id}", response_model=PatientOut)
 async def get_patient(patient_id: str, request: Request,
                        current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    p = db.get(models.Patient, patient_id)
-    if not p:
-        raise HTTPException(404, "Patient introuvable.")
+    p = get_scoped_patient(patient_id, current, db)
     write_audit(db, request, "Consultation dossier patient", "patient", user=current, patient_id=patient_id)
     return _patient_out(p)
 
@@ -59,7 +59,10 @@ async def create_patient(p: PatientCreate, request: Request,
                           current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     if db.get(models.Patient, p.id):
         raise HTTPException(400, "ID patient déjà existant.")
-    rec = models.Patient(**p.model_dump())
+    # institution_id n'est JAMAIS pris depuis le payload client — toujours
+    # hérité du créateur (voir models.Patient), sinon un utilisateur pourrait
+    # créer un patient directement dans une autre institution que la sienne.
+    rec = models.Patient(**p.model_dump(), institution_id=current.institution_id)
     db.add(rec)
     db.commit()
     db.refresh(rec)
@@ -70,9 +73,7 @@ async def create_patient(p: PatientCreate, request: Request,
 @router.put("/patients/{patient_id}", response_model=PatientOut)
 async def update_patient(patient_id: str, p: PatientUpdate, request: Request,
                           current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    rec = db.get(models.Patient, patient_id)
-    if not rec:
-        raise HTTPException(404, "Patient introuvable.")
+    rec = get_scoped_patient(patient_id, current, db)
     updates = p.model_dump(exclude_unset=True)
     for k, v in updates.items():
         setattr(rec, k, v)
@@ -86,9 +87,7 @@ async def update_patient(patient_id: str, p: PatientUpdate, request: Request,
 @router.delete("/patients/{patient_id}")
 async def delete_patient(patient_id: str, request: Request,
                           current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    rec = db.get(models.Patient, patient_id)
-    if not rec:
-        raise HTTPException(404, "Patient introuvable.")
+    rec = get_scoped_patient(patient_id, current, db)
     db.delete(rec)
     db.commit()
     write_audit(db, request, "Suppression patient", "patient", user=current, patient_id=patient_id, niveau="warn")
@@ -97,16 +96,14 @@ async def delete_patient(patient_id: str, request: Request,
 
 @router.get("/patients/{patient_id}/segments", response_model=List[SegmentOut])
 async def list_segments(patient_id: str, current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not db.get(models.Patient, patient_id):
-        raise HTTPException(404, "Patient introuvable.")
+    get_scoped_patient(patient_id, current, db)
     return db.query(models.Segment).filter(models.Segment.patient_id == patient_id).all()
 
 
 @router.post("/patients/{patient_id}/segments", response_model=SegmentOut, status_code=201)
 async def create_segment(patient_id: str, s: SegmentCreate, request: Request,
                           current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not db.get(models.Patient, patient_id):
-        raise HTTPException(404, "Patient introuvable.")
+    get_scoped_patient(patient_id, current, db)
     rec = models.Segment(patient_id=patient_id, **s.model_dump())
     db.add(rec)
     db.commit()
@@ -118,6 +115,7 @@ async def create_segment(patient_id: str, s: SegmentCreate, request: Request,
 @router.delete("/patients/{patient_id}/segments/{segment_id}")
 async def delete_segment(patient_id: str, segment_id: str, request: Request,
                           current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    get_scoped_patient(patient_id, current, db)
     rec = db.query(models.Segment).filter(models.Segment.id == segment_id, models.Segment.patient_id == patient_id).first()
     if not rec:
         raise HTTPException(404, "Segment introuvable.")

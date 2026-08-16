@@ -34,14 +34,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+import models
 from db import get_db
 import security as sec
+from deps import get_current_user, get_scoped_patient, write_audit
 from logging_config import get_logger
+from voice_command_engine import (
+    resolve_voice_command,
+    VoiceCommandContext,
+    voice_command_help,
+)
 
 logger = get_logger(__name__)
 
@@ -257,3 +264,150 @@ async def get_mdr_fda_compliance_dashboard(db: Session = Depends(get_db)):
             "note": "Ce compteur reflète le contenu réel de audit_logs ; il ne constitue pas une preuve de conformité."
         }
     }
+
+
+# ---------------------------------------------------------------------------
+# Voice-First : résolution NLU & persistance des notes vocales
+# ---------------------------------------------------------------------------
+# Schémas partagés entre le frontend (app-part3.js `glActionMap`) et ce router :
+# `action` correspond exactement à une clé de `glActionMap()` (`[ACTION:<action>]`).
+class VoiceCommandRequest(BaseModel):
+    transcript: str = Field(..., description="Transcription vocale brute (ou texte tapé) à interpréter")
+    patient_id: Optional[str] = Field(None, description="ID patient courant (aide au contexte)")
+    specialty: Optional[str] = Field(None, description="Spécialité chirurgicale courante")
+    language: str = Field("fr", description="Langue de l'énoncé (fr/en)")
+
+
+class VoiceCommandResponse(BaseModel):
+    intent: str
+    action: Optional[str] = None
+    params: Dict[str, Any] = Field(default_factory=dict)
+    confidence: float
+    reply: str
+    notes_tags: List[str] = Field(default_factory=list)
+    help: Optional[List[str]] = None
+
+
+class VoiceNoteCreate(BaseModel):
+    patient_id: Optional[str] = None
+    text: str = Field(..., min_length=1, max_length=4096)
+    tags: List[str] = Field(default_factory=list)
+    specialty: Optional[str] = None
+    intent: Optional[str] = None
+    action_token: Optional[str] = None
+    confidence: Optional[float] = None
+
+
+class VoiceNoteResponse(BaseModel):
+    id: str
+    author_username: str
+    patient_id: Optional[str]
+    text: str
+    tags: List[str]
+    intent: Optional[str]
+    action_token: Optional[str]
+    specialty: Optional[str]
+    confidence: Optional[float]
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.post("/command")
+async def resolve_command(
+    req: VoiceCommandRequest,
+    request: Request,
+    current: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Résout une commande vocale/texte en intention structurée + action-token partagé
+    avec le frontend (`[ACTION:<token>]`). Utilisé par le chemin REST/chat (fallback
+    Gemini) et comme source de vérité serveur pour la traçabilité MDR/IEC 62304 :
+    chaque interprétation est consignée dans `audit_logs`.
+    """
+    ctx = VoiceCommandContext(
+        patient_id=req.patient_id,
+        specialty=req.specialty,
+        language=req.language,
+    )
+    intent = resolve_voice_command(req.transcript, ctx)
+
+    write_audit(
+        db, request,
+        "VOICE_COMMAND_RESOLVED", "voice_command",
+        user=current, patient_id=req.patient_id,
+        niveau="info", metadata=intent.to_dict(),
+    )
+
+    return VoiceCommandResponse(
+        intent=intent.intent,
+        action=intent.action,
+        params=intent.params,
+        confidence=intent.confidence,
+        reply=intent.reply,
+        notes_tags=intent.notes_tags,
+    )
+
+
+@router.get("/help")
+async def get_voice_help(
+    current: models.User = Depends(get_current_user),
+):
+    """Liste lisible des commandes vocales disponibles (UI d'aide / onboarding)."""
+    return {"commands": voice_command_help()}
+
+
+@router.post("/notes", status_code=status.HTTP_201_CREATED, response_model=VoiceNoteResponse)
+async def create_voice_note(
+    note: VoiceNoteCreate,
+    request: Request,
+    current: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Persiste une note dictée à la voix (« Note : … »). Le texte est stocké tel quel,
+    les tags sont indexés pour le filtrage pédagogique/audit. La note est rattachée
+    à l'utilisateur authentifié (source de vérité serveur, jamais au client).
+    """
+    if note.patient_id:
+        get_scoped_patient(note.patient_id, current, db)
+    vn = models.VoiceNote(
+        patient_id=note.patient_id,
+        author_username=current.username,
+        specialty=note.specialty or current.role,
+        intent=note.intent,
+        action_token=note.action_token,
+        text=note.text,
+        tags=note.tags,
+        confidence=note.confidence,
+    )
+    db.add(vn)
+    db.commit()
+    db.refresh(vn)
+
+    write_audit(
+        db, request,
+        "VOICE_NOTE_CREATED", "voice_note",
+        user=current, patient_id=note.patient_id,
+        niveau="info",
+        metadata={"intent": note.intent, "action_token": note.action_token, "tags": note.tags},
+    )
+    return vn
+
+
+@router.get("/notes/{patient_id}", response_model=List[VoiceNoteResponse])
+async def list_voice_notes(
+    patient_id: str,
+    current: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Liste les notes vocales d'un patient (chronologique inverse)."""
+    get_scoped_patient(patient_id, current, db)
+    notes = (
+        db.query(models.VoiceNote)
+        .filter(models.VoiceNote.patient_id == patient_id)
+        .order_by(models.VoiceNote.created_at.desc())
+        .all()
+    )
+    return notes

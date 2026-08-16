@@ -30,8 +30,8 @@ import models
 import twin_pipeline
 import twin_solver
 from db import get_db
-from deps import get_current_user, write_audit
-from schemas import TwinBiomechIn, TwinBiomechOut, TwinDeformRequest, TwinDeformResponse
+from deps import get_current_user, get_scoped_patient, require_module, write_audit
+from schemas import TwinBiomechIn, TwinBiomechOut, TwinDeformRequest, TwinDeformResponse, ElastographyIngestIn
 from twin_biomech_atlas import LITERATURE_ATLAS, get_default_biomech
 
 router = APIRouter(tags=["twin"])
@@ -61,8 +61,7 @@ async def list_twin_biomech(patient_id: str,
     """Valeurs EFFECTIVES (stockées si présentes, sinon défaut d'atlas) pour
     chaque type de tissu connu de l'atlas — pas seulement ce qui est en base,
     pour que le frontend ait toujours une valeur exploitable à afficher."""
-    if not db.get(models.Patient, patient_id):
-        raise HTTPException(404, "Patient introuvable.")
+    get_scoped_patient(patient_id, current, db)
 
     stored = {
         r.tissue_type: r for r in db.query(models.TwinBiomech).filter(
@@ -80,8 +79,7 @@ async def upsert_twin_biomech(patient_id: str, tissue_type: str, body: TwinBiome
                                current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Enregistre une valeur réelle (élastographie ou ajustement clinicien),
     qui remplace le défaut d'atlas pour ce tissu tant qu'elle n'est pas supprimée."""
-    if not db.get(models.Patient, patient_id):
-        raise HTTPException(404, "Patient introuvable.")
+    get_scoped_patient(patient_id, current, db)
 
     rec = db.query(models.TwinBiomech).filter(
         models.TwinBiomech.patient_id == patient_id, models.TwinBiomech.tissue_type == tissue_type
@@ -106,13 +104,49 @@ async def upsert_twin_biomech(patient_id: str, tissue_type: str, body: TwinBiome
     return _stored_out(rec)
 
 
+@router.post("/patients/{patient_id}/twin/elastography", response_model=TwinBiomechOut)
+async def ingest_patient_elastography(
+    patient_id: str, body: ElastographyIngestIn, request: Request,
+    current: models.User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """
+    Ingestion des mesures réelles d'élastographie IRM / Echographique (MRE, SWE) :
+    calibre directement les paramètres Mooney-Rivlin du patient (source='patient_elastography').
+    """
+    get_scoped_patient(patient_id, current, db)
+
+    rec = db.query(models.TwinBiomech).filter(
+        models.TwinBiomech.patient_id == patient_id,
+        models.TwinBiomech.tissue_type == body.tissue_type
+    ).first()
+
+    c10 = round(body.mean_shear_stiffness_kpa / 2.0, 4)
+    params = {"C10_kpa": c10, "C01_kpa": 0.0, "measured_shear_kpa": body.mean_shear_stiffness_kpa}
+
+    if rec is None:
+        rec = models.TwinBiomech(patient_id=patient_id, tissue_type=body.tissue_type)
+        db.add(rec)
+
+    rec.model = "mooney_rivlin"
+    rec.parameters_json = params
+    rec.source = "patient_elastography"
+    rec.validation_dataset_ref = body.validation_dataset_ref or f"Élastographie ({body.elastography_type}, {body.frequency_hz} Hz)"
+    rec.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(rec)
+    write_audit(db, request, "Calibration biomécanique par élastographie réelle", "twin_biomech",
+                user=current, patient_id=patient_id, niveau="ok",
+                metadata={"tissue_type": body.tissue_type, "shear_kpa": body.mean_shear_stiffness_kpa, "C10_kpa": c10})
+    return _stored_out(rec)
+
+
 @router.delete("/patients/{patient_id}/twin/biomech/{tissue_type}", response_model=TwinBiomechOut)
 async def reset_twin_biomech(patient_id: str, tissue_type: str, request: Request,
                               current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Supprime la valeur enregistrée pour ce tissu — le patient revient au
     défaut d'atlas (pas une erreur si rien n'était enregistré : idempotent)."""
-    if not db.get(models.Patient, patient_id):
-        raise HTTPException(404, "Patient introuvable.")
+    get_scoped_patient(patient_id, current, db)
 
     rec = db.query(models.TwinBiomech).filter(
         models.TwinBiomech.patient_id == patient_id, models.TwinBiomech.tissue_type == tissue_type
@@ -135,13 +169,19 @@ def _shear_kpa_from_parameters(parameters: dict) -> float:
 
 @router.post("/patients/{patient_id}/twin/deform", response_model=TwinDeformResponse)
 async def deform_twin(patient_id: str, body: TwinDeformRequest, request: Request,
-                       current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+                       current: models.User = Depends(require_module("digital_twin")),
+                       db: Session = Depends(get_db)):
     """
     Lance le solveur biomécanique réel (twin_solver.solve, Phase 1) sur le
     maillage tétraédrique d'une structure DÉJÀ segmentée pour un patient
     (Phase 0b — voir twin_pipeline.py) : premier branchement du solveur sur de
     vraies données patient, jusqu'ici validé uniquement sur des formes
     synthétiques de test (backend/tests/test_twin_solver.py).
+
+    Réservé au module de licence 'digital_twin' (voir licensing.py) —
+    fonctionnalité la plus coûteuse en calcul du dépôt, seule fonctionnalité
+    de ce router à être ainsi restreinte (biomech/élastographie restent
+    ouvertes à tout plan, elles ne font qu'enregistrer des paramètres).
 
     La rigidité de forme (`dev_stiffness`) est dérivée du module de
     cisaillement effectif du patient pour `tissue_type` (valeur enregistrée
@@ -152,8 +192,7 @@ async def deform_twin(patient_id: str, body: TwinDeformRequest, request: Request
     requête : TwinBiomech ne modélise pas encore de module de compressibilité
     séparé par tissu.
     """
-    if not db.get(models.Patient, patient_id):
-        raise HTTPException(404, "Patient introuvable.")
+    get_scoped_patient(patient_id, current, db)
 
     try:
         mesh = twin_pipeline.load_tetmesh(body.job_id, body.structure)

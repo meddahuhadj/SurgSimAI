@@ -35,21 +35,6 @@ TETMESH_STORAGE = seg.MESH_STORAGE.parent / "tetmeshes"
 TETMESH_STORAGE.mkdir(parents=True, exist_ok=True)
 
 
-def _label_source(job_id: str, structure: str) -> dict:
-    job = seg._JOBS.get(job_id)
-    if job is None:
-        raise KeyError(f"job_id inconnu : {job_id}")
-    if job.get("status") != "done":
-        raise ValueError(f"Job pas encore terminé (status={job.get('status')}).")
-    sources = job.get("label_sources", {})
-    if structure not in sources:
-        raise KeyError(
-            f"Structure '{structure}' indisponible pour ce job (structures connues : "
-            f"{sorted(sources)})."
-        )
-    return sources[structure]
-
-
 def build_tetmesh_for_structure(job_id: str, structure: str,
                                  max_interior_points: int = 1500) -> dict:
     """Construit (ou reconstruit) le maillage tétraédrique de `structure` pour
@@ -62,7 +47,7 @@ def build_tetmesh_for_structure(job_id: str, structure: str,
     disque (voir avertissement en tête de module)."""
     import nibabel as nib
 
-    source = _label_source(job_id, structure)
+    source = seg.get_label_source(job_id, structure)
     nifti_path = Path(source["nifti_path"])
     if not nifti_path.is_file():
         raise FileNotFoundError(
