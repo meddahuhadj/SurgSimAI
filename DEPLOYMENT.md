@@ -16,9 +16,10 @@ Le moyen le plus rapide pour une démo publique sans infrastructure. Utilise `re
 2. Connecter votre dépôt GitHub
 3. Render détecte `render.yaml` automatiquement → cliquer **Apply**
 4. Attendre la fin du premier build (~5 min)
-5. L'app est disponible sur `https://generalsurg-plan-mimo-demo.onrender.com`
+5. L'app est disponible sur `https://surgsimai.onrender.com`
    (l'URL exacte dépend du `name:` que vous donnez au service dans
-   `render.yaml` — Render la dérive automatiquement de ce nom)
+   `render.yaml` — Render la dérive automatiquement de ce nom ; si ce nom
+   est déjà pris sur Render, l'URL réelle aura un suffixe différent)
 
 > ⚠️ Sur le plan gratuit, le service s'endort après 15 min d'inactivité et met ~30s à répondre au premier accès (cold start). Normal pour une démo.
 
